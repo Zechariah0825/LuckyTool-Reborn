@@ -20,10 +20,47 @@ jobs:
           git clone https://github.com/luckyzyx/LuckyTool.git /tmp/luckytool-original
           git -C /tmp/luckytool-original checkout eea0acfdea4fe6a6f5e1ee2abb7943d501216ed3
           rsync -a --exclude=.git --exclude=.github/workflows --exclude=README.md /tmp/luckytool-original/ ./
+          python3 - <<'PY'
+          from pathlib import Path
+          edits = {
+            "app/src/main/java/com/luckyzyx/luckytool/ui/theme/UiMode.kt": [
+              ("val DEFAULT_VALUE = Miuix.value", "val DEFAULT_VALUE = Material.value")],
+            "app/src/main/java/com/luckyzyx/luckytool/ui/theme/LuckyTheme.kt": [
+              ("private val DefaultSeedColor = Color(0xFF6750A4)", "private val DefaultSeedColor = Color(0xFF222222)")],
+            "app/src/main/java/com/luckyzyx/luckytool/ui/theme/DesignTokens.kt": [
+              ("val CardRadius: Dp = 16.dp", "val CardRadius: Dp = 22.dp"),
+              ("val GroupGap: Dp = 12.dp", "val GroupGap: Dp = 14.dp")],
+            "app/src/main/java/com/luckyzyx/luckytool/ui/compose/pages/HomeDashboard.kt": [
+              ("HomeColors(surfaceBright, onSurface, onSurfaceVariant, primary, error)", "HomeColors(surfaceContainerLow, onSurface, onSurfaceVariant, onSurface, error)")],
+          }
+          for name, replacements in edits.items():
+              path = Path(name)
+              data = path.read_text()
+              for old, new in replacements:
+                  if old not in data:
+                      raise RuntimeError(f"Missing expected source fragment in {name}: {old}")
+                  data = data.replace(old, new)
+              path.write_text(data)
+          Path("REBORN_NOTES.md").write_text("LuckyTool Reborn v0.2: Material default, graphite palette, card spacing, Android 17 upstream fallback retained. Build/test pending.\\n")
+          PY
+          python3 -m pip install --quiet --break-system-packages pillow
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+          for dpi, size in [('mdpi',48),('hdpi',72),('xhdpi',96),('xxhdpi',144),('xxxhdpi',192)]:
+              s = size * 4
+              im = Image.new('RGBA', (s,s), 'white')
+              d = ImageDraw.Draw(im)
+              d.line([(int(.27*s),int(.20*s)),(int(.27*s),int(.76*s)),(int(.72*s),int(.76*s))], fill='#101010',width=int(.085*s),joint='curve')
+              d.ellipse((int(.66*s),int(.20*s),int(.80*s),int(.34*s)),fill='#101010')
+              im = im.resize((size,size),Image.Resampling.LANCZOS)
+              for name in ('ic_launcher.png','ic_launcher_round.png'):
+                  im.save(Path(f'app/src/main/res/mipmap-{dpi}')/name)
+          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "import: LuckyTool upstream source eea0acf" || true
+          git commit -m "import: LuckyTool upstream source with Reborn v0.2 changes" || true
           git push origin HEAD:main
       - uses: actions/setup-java@v4
         with:
