@@ -1,34 +1,46 @@
-name: Build LuckyTool Reborn APK
+name: Import LuckyTool source and build APK
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - 'app/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle/**'
-      - '.github/workflows/build-reborn.yml'
 jobs:
-  build:
+  import-and-build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Import original source into this repository
+        if: ${{ hashFiles('app/build.gradle.kts') == '' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone https://github.com/luckyzyx/LuckyTool.git /tmp/luckytool-original
+          git -C /tmp/luckytool-original checkout eea0acfdea4fe6a6f5e1ee2abb7943d501216ed3
+          rsync -a --exclude=.git --exclude=.github/workflows --exclude=README.md /tmp/luckytool-original/ ./
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "import: LuckyTool upstream source eea0acf" || true
+          git push origin HEAD:main
       - uses: actions/setup-java@v4
         with:
-          distribution: oracle
+          distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
-      - name: Verify project import
+      - name: Configure debug signing
+        shell: bash
         run: |
-          test -f gradlew
-          test -d app
-      - name: Build APK
+          mkdir -p keystore
+          keytool -genkeypair -noprompt -keystore keystore/reborn-debug.jks -storepass android -keypass android -alias reborn -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=LuckyTool Reborn Debug"
+          printf 'storeFile=%s\nstorePassword=android\nkeyAlias=reborn\nkeyPassword=android\n' "$GITHUB_WORKSPACE/keystore/reborn-debug.jks" > keystore/keystore.properties
+      - name: Build debug APK
         run: bash ./gradlew :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: LuckyTool-Reborn-debug-apk
           path: app/build/outputs/apk/debug/*.apk
