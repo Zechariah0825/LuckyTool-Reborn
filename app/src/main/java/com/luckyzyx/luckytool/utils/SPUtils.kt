@@ -1,0 +1,296 @@
+@file:Suppress("DEPRECATION", "WorldReadableFiles", "ApplySharedPref", "UseKtx", "unused")
+
+package com.luckyzyx.luckytool.utils
+
+import android.content.Context
+import android.util.ArrayMap
+import android.util.ArraySet
+import androidx.collection.arrayMapOf
+import androidx.collection.arraySetOf
+import com.luckyzyx.luckytool.ui.service.XposedServiceBridge
+import org.json.JSONObject
+
+const val ModulePrefs: String = "ModulePrefs"
+const val IntentPrefs: String = "IntentPrefs"
+const val SettingsPrefs: String = "SettingsPrefs"
+const val OtherPrefs: String = "OtherPrefs"
+
+/**
+ * 只读本地文件的 prefs：这两个文件里的键 hook 侧一处都不读（宿主进程读的是 ModulePrefs / IntentPrefs），
+ * 所以没必要绕框架 service —— 绑定失败或未激活时设置照样能存住，不会因为「回落本地读到默认值」
+ * 出现配置看起来丢了、写回去又被下次启动覆盖的情况。
+ */
+private val LocalOnlyPrefs: Set<String> = setOf(SettingsPrefs, OtherPrefs)
+
+/**
+ * prefs 的落点。[key] 是备份 JSON 里记录的值：恢复时按记录写回，不再由「恢复那一刻 service 是否可用」
+ * 决定配置落到哪儿 —— 否则同一份备份在不同时刻恢复会落进不同存储，hook 侧可能读不到。
+ */
+enum class PrefsTarget(val key: String) {
+    REMOTE("remote"),
+    LOCAL("local");
+
+    companion object {
+        fun ofKey(key: String?): PrefsTarget? = entries.firstOrNull { it.key == key }
+    }
+}
+
+/** 当前实际落点：remote 只在该 prefs 不在 [LocalOnlyPrefs] 且框架 service 可用时成立 */
+internal fun Context.prefsTarget(prefsName: String): PrefsTarget =
+    if (prefsName in LocalOnlyPrefs || XposedServiceBridge.preferences(prefsName) == null)
+        PrefsTarget.LOCAL else PrefsTarget.REMOTE
+
+/**
+ * 按指定落点取 prefs。remote 在框架 service 不可用时返回 null：备份/恢复据此计入失败，
+ * 不静默写本地（那会显示成恢复成功，hook 侧却读不到）。
+ */
+internal fun Context.prefsForTarget(
+    prefsName: String, target: PrefsTarget
+): android.content.SharedPreferences? = when (target) {
+    PrefsTarget.LOCAL -> getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+    PrefsTarget.REMOTE -> XposedServiceBridge.preferences(prefsName)
+}
+
+/** 备份里记录的落点：新格式 `{ "target": ..., "data": {...} }`；旧备份直接是键值对象，返回 null */
+internal fun JSONObject.recordedTarget(prefsName: String): PrefsTarget? {
+    val entry = optJSONObject(prefsName) ?: return null
+    if (!entry.has("data")) return null
+    return PrefsTarget.ofKey(entry.optString("target"))
+}
+
+/** 某个 prefs 文件的实际键值数据：新格式在 data 下，旧备份就是它本身 */
+internal fun JSONObject.prefsData(prefsName: String): JSONObject? {
+    val entry = optJSONObject(prefsName) ?: return null
+    return entry.optJSONObject("data") ?: entry
+}
+
+/**
+ * UI 侧 prefs 访问统一入口：[LocalOnlyPrefs] 固定走本地 prefs；其余在框架 service 可用
+ * （YukiHook.Status 观察到的 available）时走 remote prefs（与宿主进程 YukiHookPreferences 同一数据源），
+ * 不可用时回落本地 prefs。
+ */
+internal fun Context.appPrefs(prefsName: String): android.content.SharedPreferences =
+    prefsForTarget(prefsName, prefsTarget(prefsName))
+        ?: getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+
+
+fun Context.getString(prefsName: String, key: String, defaultValue: String = ""): String {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.getString(key, defaultValue) ?: defaultValue
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "getString $key -> $defaultValue", "$t", true)
+        defaultValue
+    }
+}
+
+fun Context.putString(prefsName: String, key: String, value: String): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().putString(key, value).commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "putString $key -> $value", "$t", true)
+        false
+    }
+}
+
+fun Context.getStringSet(
+    prefsName: String, key: String, defaultValue: Set<String> = arraySetOf()
+): Set<String> {
+    return try {
+        val prefs = appPrefs(prefsName)
+        ArraySet(prefs.getStringSet(key, defaultValue))
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "getStringSet $key -> $defaultValue", "$t", true)
+        defaultValue
+    }
+}
+
+/**
+ * 跨进程传输安全的集合副本。
+ *
+ * remote prefs（libxposed RemotePreferences）是把写入值打包进 Bundle 经 Binder 交给框架进程执行的，
+ * 接收侧按 Serializable 反序列化，而 Parcel 的默认类解析走 bootstrap 类加载器：Kotlin 单例集合
+ * （`emptySet()` 得到的 `kotlin.collections.EmptySet`）与 androidx 集合都不在 boot 路径上，解析不到就抛
+ * `android.os.BadParcelableException: ... ClassNotFoundException ... EmptySet`，这一次 prefs 更新连同
+ * 同批的其它键一起失败（表现为设置写不进宿主进程）。写入前统一复制成 java.util.HashSet：
+ * 值类型与语义都不变，也不再把 Kotlin 实现泄漏给框架。
+ */
+internal fun Set<String>.toPrefsSafeSet(): HashSet<String> = HashSet(this)
+
+fun Context.putStringSet(prefsName: String, key: String, value: Set<String>): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().putStringSet(key, value.toPrefsSafeSet()).commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "putStringSet $key -> $value", "$t", true)
+        false
+    }
+}
+
+fun Context.getInt(prefsName: String, key: String, defaultValue: Int): Int {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.getInt(key, defaultValue)
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "getInt $key -> $defaultValue", "$t", true)
+        defaultValue
+    }
+}
+
+fun Context.putInt(prefsName: String, key: String, value: Int): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().putInt(key, value).commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "putInt $key -> $value", "$t", true)
+        false
+    }
+}
+
+fun Context.getLong(prefsName: String, key: String, defaultValue: Long): Long {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.getLong(key, defaultValue)
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "getLong $key -> $defaultValue", "$t", true)
+        defaultValue
+    }
+}
+
+fun Context.putLong(prefsName: String, key: String, value: Long): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().putLong(key, value).commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "putLong $key -> $value", "$t", true)
+        false
+    }
+}
+
+fun Context.getFloat(prefsName: String, key: String, defaultValue: Float): Float {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.getFloat(key, defaultValue)
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "getFloat $key -> $defaultValue", "$t", true)
+        defaultValue
+    }
+}
+
+fun Context.putFloat(prefsName: String, key: String, value: Float): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().putFloat(key, value).commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "putFloat $key -> $value", "$t", true)
+        false
+    }
+}
+
+fun Context.getBoolean(prefsName: String, key: String, defaultValue: Boolean = false): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.getBoolean(key, defaultValue)
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "getBoolean $key -> $defaultValue", "$t", true)
+        defaultValue
+    }
+}
+
+fun Context.putBoolean(prefsName: String, key: String, value: Boolean): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().putBoolean(key, value).commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "putBoolean $key -> $value", "$t", true)
+        false
+    }
+}
+
+/**
+ * 删除键值数据
+ * @receiver Context
+ * @param prefsName String
+ * @param key String
+ */
+fun Context.removeKey(prefsName: String, key: String): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().remove(key).commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "removeKey $key", "$t", true)
+        false
+    }
+}
+
+/**
+ * 删除此配置键值数据
+ * @receiver Context
+ * @param prefsName String?
+ * @return Boolean
+ */
+fun Context.clearPrefs(prefsName: String): Boolean {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.edit().clear().commit()
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "clearPrefs $prefsName", "$t", true)
+        false
+    }
+}
+
+/**
+ * 删除全部配置键值数据
+ * @receiver Context
+ * @param prefList Array<out String?>
+ */
+fun Context.clearAllPrefs(vararg prefList: String): Boolean {
+    val curStatus = BooleanArray(prefList.size)
+    prefList.forEachIndexed { index, name ->
+        try {
+            val prefs = appPrefs(name)
+            curStatus[index] = prefs.edit().clear().commit()
+        } catch (t: Throwable) {
+            LogUtils.e("SPUtils", "clearAllPrefs $name", "$t", true)
+            curStatus[index] = false
+        }
+    }
+    return curStatus.contains(false)
+}
+
+/**
+ * 获取配置键值数据
+ * @receiver Context
+ * @param prefsName String?
+ * @return MutableMap<String, *>?
+ */
+fun Context.backupPrefs(prefsName: String): MutableMap<String, *> {
+    return try {
+        val prefs = appPrefs(prefsName)
+        prefs.all
+    } catch (t: Throwable) {
+        LogUtils.e("SPUtils", "backupPrefs $prefsName", "$t", true)
+        arrayMapOf<String, Any>()
+    }
+}
+
+/**
+ * 获取配置键值数据
+ * @receiver Context
+ * @param prefList Array<out String?>
+ * @return ArrayMap<String, MutableMap<String, *>>?
+ */
+fun Context.backupAllPrefs(vararg prefList: String): ArrayMap<String, MutableMap<String, *>?> {
+    val map = ArrayMap<String, MutableMap<String, *>?>()
+    prefList.forEachIndexed { _, name ->
+        try {
+            val prefs = appPrefs(name)
+            map[name] = prefs.all
+        } catch (t: Throwable) {
+            LogUtils.e("SPUtils", "backupAllPrefs $name", "$t", true)
+            map[name] = arrayMapOf<String, Any>()
+        }
+    }
+    return map
+}

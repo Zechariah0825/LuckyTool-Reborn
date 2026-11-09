@@ -1,84 +1,127 @@
-name: Import LuckyTool source and build APK
+name: Build LuckyTool Reborn APK
+
 on:
   workflow_dispatch:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reborn-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  import-and-build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+  build:
+    name: Build debug APK and run unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out this commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          persist-credentials: true
-      - name: Import original source into this repository
-        if: ${{ hashFiles('app/build.gradle.kts') == '' }}
-        shell: bash
-        run: |
-          set -euxo pipefail
-          git clone https://github.com/luckyzyx/LuckyTool.git /tmp/luckytool-original
-          git -C /tmp/luckytool-original checkout eea0acfdea4fe6a6f5e1ee2abb7943d501216ed3
-          rsync -a --exclude=.git --exclude=.github/workflows --exclude=README.md /tmp/luckytool-original/ ./
-          python3 - <<'PY'
-          from pathlib import Path
-          edits = {
-            "app/src/main/java/com/luckyzyx/luckytool/ui/theme/UiMode.kt": [
-              ("val DEFAULT_VALUE = Miuix.value", "val DEFAULT_VALUE = Material.value")],
-            "app/src/main/java/com/luckyzyx/luckytool/ui/theme/LuckyTheme.kt": [
-              ("private val DefaultSeedColor = Color(0xFF6750A4)", "private val DefaultSeedColor = Color(0xFF222222)")],
-            "app/src/main/java/com/luckyzyx/luckytool/ui/theme/DesignTokens.kt": [
-              ("val CardRadius: Dp = 16.dp", "val CardRadius: Dp = 22.dp"),
-              ("val GroupGap: Dp = 12.dp", "val GroupGap: Dp = 14.dp")],
-            "app/src/main/java/com/luckyzyx/luckytool/ui/compose/pages/HomeDashboard.kt": [
-              ("HomeColors(surfaceBright, onSurface, onSurfaceVariant, primary, error)", "HomeColors(surfaceContainerLow, onSurface, onSurfaceVariant, onSurface, error)")],
-          }
-          for name, replacements in edits.items():
-              path = Path(name)
-              data = path.read_text()
-              for old, new in replacements:
-                  if old not in data:
-                      raise RuntimeError(f"Missing expected source fragment in {name}: {old}")
-                  data = data.replace(old, new)
-              path.write_text(data)
-          Path("REBORN_NOTES.md").write_text("LuckyTool Reborn v0.2: Material default, graphite palette, card spacing, Android 17 upstream fallback retained. Build/test pending.\\n")
-          PY
-          python3 -m pip install --quiet --break-system-packages pillow
-          python3 - <<'PY'
-          from pathlib import Path
-          from PIL import Image, ImageDraw
-          for dpi, size in [('mdpi',48),('hdpi',72),('xhdpi',96),('xxhdpi',144),('xxxhdpi',192)]:
-              s = size * 4
-              im = Image.new('RGBA', (s,s), 'white')
-              d = ImageDraw.Draw(im)
-              d.line([(int(.27*s),int(.20*s)),(int(.27*s),int(.76*s)),(int(.72*s),int(.76*s))], fill='#101010',width=int(.085*s),joint='curve')
-              d.ellipse((int(.66*s),int(.20*s),int(.80*s),int(.34*s)),fill='#101010')
-              im = im.resize((size,size),Image.Resampling.LANCZOS)
-              for name in ('ic_launcher.png','ic_launcher_round.png'):
-                  im.save(Path(f'app/src/main/res/mipmap-{dpi}')/name)
-          PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "import: LuckyTool upstream source with Reborn v0.2 changes" || true
-          git push origin HEAD:main
-      - uses: actions/setup-java@v4
+          persist-credentials: false
+      - name: Set up Java 21
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - name: Configure debug signing
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Install Android 17 platform
+        run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Verify committed project
         shell: bash
         run: |
-          mkdir -p keystore
-          keytool -genkeypair -noprompt -keystore keystore/reborn-debug.jks -storepass android -keypass android -alias reborn -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=LuckyTool Reborn Debug"
-          printf 'storeFile=%s\nstorePassword=android\nkeyAlias=reborn\nkeyPassword=android\n' "$GITHUB_WORKSPACE/keystore/reborn-debug.jks" > keystore/keystore.properties
+          set -euo pipefail
+          test -f app/build.gradle.kts
+          test -f settings.gradle.kts
+          test -f gradle/wrapper/gradle-wrapper.jar
+          test -f gradle/wrapper/gradle-wrapper.properties
+          test -f gradlew
+          java -version
+          bash ./gradlew --version
       - name: Build debug APK
-        run: bash ./gradlew :app:assembleDebug --stacktrace
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        if: success()
+        id: build
+        run: bash ./gradlew --no-daemon --stacktrace :app:assembleDebug
+      - name: Run required unit tests
+        run: bash ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+      - name: Record build provenance and APK hashes
+        if: always() && steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/reborn-artifact
+          cp app/build/outputs/apk/debug/*.apk build/reborn-artifact/
+          cp app/build/outputs/apk/debug/output-metadata.json build/reborn-artifact/
+          printf 'repository=%s\ncommit=%s\nrun=%s/%s/actions/runs/%s\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_SERVER_URL" \
+            "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > build/reborn-artifact/build-info.txt
+          (cd build/reborn-artifact && sha256sum ./*.apk > SHA256SUMS)
+      - name: Upload debug APK and build information
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: LuckyTool-Reborn-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: LuckyTool-Reborn-debug-${{ github.sha }}
+          path: build/reborn-artifact/
           if-no-files-found: error
+          retention-days: 14
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: LuckyTool-Reborn-tests-${{ github.sha }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  lint:
+    name: Full lint report (non-blocking)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out this commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Java 21
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Install Android 17 platform and required build tools
+        run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Run full lint without suppressions
+        id: lint
+        continue-on-error: true
+        run: bash ./gradlew --no-daemon --stacktrace :app:lintDebug
+      - name: Report actual lint outcome
+        if: always()
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        shell: bash
+        run: |
+          {
+            echo '## Full lint result (non-blocking)'
+            echo "Actual lint outcome: **${LINT_OUTCOME:-not run}**"
+            echo 'APK compilation and unit tests are required in the separate build job.'
+            echo 'A green workflow does not imply lint is clean. Inspect the full lint report artifact.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$LINT_OUTCOME" = failure ]; then
+            echo '::warning title=Full lint failed::Lint found errors. See the full lint report artifact. No blanket suppression or baseline was applied.'
+          fi
+      - name: Upload complete lint reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: LuckyTool-Reborn-lint-${{ github.sha }}
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+          retention-days: 14

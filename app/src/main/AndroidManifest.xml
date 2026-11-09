@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:tools="http://schemas.android.com/tools">
+    
+    <!--使用生物识别-->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!--网络访问-->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!--请求安装包-->
+    <uses-permission
+            android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+            tools:ignore="RequestInstallPackagesPolicy" />
+    <!--读取外部存储-->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!--写入外部存储-->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!--所有文件访问-->
+    <uses-permission
+            android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+            tools:ignore="AllFilesAccessPolicy,ScopedStorage" />
+    <!--读取应用列表-->
+    <uses-permission
+            android:name="android.permission.QUERY_ALL_PACKAGES"
+            tools:ignore="PackageVisibilityPolicy,QueryAllPackagesPermission" />
+    <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
+    <uses-permission android:name="com.oplus.ocs.permission.third" />
+    <!--发送通知-->
+    <uses-permission android:name="android.permission.NOTIFICATION_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--前台服务-->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!--Miuix blur 的 minSdk 为 33、高于本模块的 30，放行 manifest 合并-->
+    <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
+
+    <!--预测性返回：Android 15 及更早版本必须显式声明该 flag，系统才会为应用提供官方预测性返回动画
+        （返回桌面 / 跨 Activity / 跨任务；Android 16 起 targetSdk 36+ 默认开启）。运行期由
+        PredictiveBackUtils 按 enable_predictive_back 偏好覆盖该值（应用内默认开启）。-->
+    <application
+            android:name=".ui.application.MyApplication"
+            android:allowBackup="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:description="@string/xposeddescription"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:supportsRtl="true"
+            android:theme="@style/Theme.Luckyzyx.NoActionBar"
+            android:preserveLegacyExternalStorage="true"
+            android:requestLegacyExternalStorage="true"
+            android:hasFragileUserData="true"
+            android:enableOnBackInvokedCallback="true">
+        <!--输入法弹出时不让系统缩短/平移窗口：窗口被缩短后 Compose 的 WindowInsets.ime 仍按整块键盘高度
+            上报，miuix 的 .imePadding() 会再抬一次（双重扣减），底部对齐的弹层会被顶到屏幕上方、顶部
+            内容被裁。adjustNothing 只让 inset 派发，弹层位置交给 miuix 自己摆到键盘正上方。-->
+        <activity
+                android:name=".ui.activity.MainActivity"
+                android:exported="true"
+                android:theme="@style/Theme.Luckyzyx.Splash"
+                android:windowSoftInputMode="adjustNothing">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+                android:name=".Hide"
+                android:enabled="true"
+                android:exported="true"
+                android:label="@string/app_name"
+                android:targetActivity=".ui.activity.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        
+        <activity
+                android:name=".ui.activity.ShortcutActivity"
+                android:excludeFromRecents="true"
+                android:exported="false"
+                android:theme="@android:style/Theme.Translucent">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
+        </activity>
+        
+        <activity
+                android:name=".ui.activity.CropImageActivity"
+                android:theme="@style/Theme.Luckyzyx.NoActionBar" />
+        
+        <meta-data
+                android:name="xposedmodule"
+                android:value="true" />
+        <meta-data
+                android:name="xposeddescription"
+                android:value="@string/xposeddescription" />
+        <service
+                android:name=".service.tiles.ChargingTestTile"
+                android:exported="true"
+                android:icon="@drawable/ic_baseline_charging_station_24"
+                android:label="@string/charging_test"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.ProcessManagerTile"
+                android:exported="true"
+                android:icon="@drawable/ic_baseline_settings_24"
+                android:label="@string/process_manager"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.RefreshRateDisplayTile"
+                android:exported="true"
+                android:icon="@drawable/ic_baseline_settings_24"
+                android:label="@string/display_refresh_rate"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.HdrSdrRatioDisplayTile"
+                android:exported="true"
+                android:icon="@drawable/ic_baseline_hdr_sdr_24"
+                android:label="@string/display_hdr_sdr_ratio"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.HighBrightnessModeTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_brightness_high_24"
+                android:label="@string/high_brightness_mode"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.GlobalDCTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_mode_night_24"
+                android:label="@string/global_dc"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.TouchSamplingRateTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_touch_app_24"
+                android:label="@string/touch_sampling_rate"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.FiveGTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_5g_24"
+                android:label="@string/fiveg_mode"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.ExtraDimModeTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_brightness_low_24"
+                android:label="@string/very_dark_mode"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.HighPerformanceModeTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_device_thermostat_24"
+                android:label="@string/high_performance_mode"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.GoogleServiceTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_google_icon_24"
+                android:label="@string/google_service"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.BypassPowerModeTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_power_24"
+                android:label="@string/bypass_power"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.RemoteAdbTile"
+                android:exported="true"
+                android:icon="@drawable/baseline_adb_24"
+                android:label="@string/remote_adb_debug_title"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+                android:name=".service.tiles.RunInBackgroundTile"
+                android:exported="true"
+                android:icon="@drawable/ic_flip_24"
+                android:label="@string/run_in_background"
+                android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        
+        <service
+                android:name=".service.normal.AutoStartControllerService"
+                android:foregroundServiceType="specialUse"
+                android:exported="true"
+                tools:ignore="ExportedService">
+            <property
+                    android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                    android:value="specialUse" />
+            <intent-filter>
+                <action android:name="${applicationId}.AutoStartControllerService" />
+            </intent-filter>
+        </service>
+        
+        <receiver
+                android:name=".receiver.SecretCodeReceiver"
+                android:enabled="true"
+                android:exported="true">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data android:scheme="android_secret_code" />
+            </intent-filter>
+        </receiver>
+        
+        <provider
+                android:name="androidx.core.content.FileProvider"
+                android:authorities="${applicationId}.FileProvider"
+                android:exported="false"
+                android:grantUriPermissions="true">
+            <meta-data
+                    android:name="android.support.FILE_PROVIDER_PATHS"
+                    android:resource="@xml/file_paths" />
+        </provider>
+    
+    </application>
+
+</manifest>

@@ -1,11 +1,36 @@
 # LuckyTool Reborn
 
-Work in progress. Based on [LuckyTool](https://github.com/luckyzyx/LuckyTool), GPL-3.0.
+LuckyTool 的实验性修改版本，基于 [luckyzyx/LuckyTool](https://github.com/luckyzyx/LuckyTool)，保留 GPL-3.0 许可证和上游版权声明。
 
-Target: Android 17 / ColorOS 17, KernelSU-style monochrome UI, Xposed hooks retained.
+本仓库包含完整 Android 工程。构建直接使用当前提交的源码，不在 CI 中下载另一份源码或向仓库自动提交。
 
-**Status:** The modified v0.2 source archive has not yet been imported into this repository. Do not treat this repository as a buildable release until the source import is completed.
+## 内容
 
-Source of truth: LuckyTool-Reborn-v0.2-build-ready.zip supplied in the development conversation.
+- `app/`：应用界面、Xposed 模块和测试。
+- `hidden-api-stub/`：编译所需的 Android 隐藏 API 声明。
+- `gradle/`、`gradlew`、`settings.gradle.kts`：Gradle Wrapper 和构建配置。
+- `.github/workflows/build-reborn.yml`：单元测试、Lint、Debug APK 构建和产物归档。
+- [BUILD_REBORN.md](BUILD_REBORN.md)：本地构建与 CI 使用说明。
+- [REBORN_NOTES.md](REBORN_NOTES.md)：修改说明与验证边界。
+- [README_UPSTREAM.md](README_UPSTREAM.md)：保留的上游说明。
+- [REPOSITORY_BOOTSTRAP.md](REPOSITORY_BOOTSTRAP.md)：源码导入前的仓库说明，作为历史记录保留。
 
-No APK has been built or tested yet.
+## 构建
+
+需要 JDK 21、Android SDK 37.0、Build Tools 36.0.0 和网络连接：
+
+```sh
+bash ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
+# 完整 Lint 单独运行，当前源码存在已记录的错误
+bash ./gradlew --no-daemon :app:lintDebug
+```
+
+也可以在 [Actions](https://github.com/Zechariah0825/LuckyTool-Reborn/actions) 中运行 **Build LuckyTool Reborn APK**。APK 编译成功后会上传产物，包含提交信息和 SHA-256 校验值。单元测试是必过检查，失败时保留已构建 APK 并使构建任务失败。完整 Lint 在独立的非阻断任务中运行，实际失败会显示警告和完整报告，因此 workflow 绿色不等于 Lint 无错误。
+
+已在本地构建 Debug APK，196 项单元测试通过。完整 Lint 检查未通过，报告 414 个错误；未添加全局屏蔽或基线。完整验证结果见 [VALIDATION.md](VALIDATION.md)。GitHub Actions 状态以对应提交的实际运行记录为准。
+
+## 使用前注意
+
+这是实验性 Debug 构建，仍使用上游包名 `com.luckyzyx.luckytool`。Debug 签名不等于官方签名，不可直接覆盖官方版本。新环境的 Debug 密钥也可能不同，不保证不同 CI 运行生成的 APK 能互相覆盖安装。请先备份设置，不要为了测试直接卸载常用版本。
+
+源码中的 Android 17 / ColorOS 17 兼容处理不等于完整真机验证。涉及系统框架的 Hook 需要在目标设备、ROM 和 LSPosed 版本上逐项测试。编译成功也不代表所有功能在真机上正常。
