@@ -17,6 +17,14 @@ object OplusMarketPage {
         restartEnabled = true,
     ) {
         val c = requireNotNull(context) { "ScopeScreen 未注入 Context" }
+        category("Reborn · 软件商店主页")
+        switch(
+            key = "reborn_market_remove_featured_tab",
+            title = "隐藏「精选」并默认进入「应用时刻」",
+            summary = "从栏目数据中移除精选，其他栏目保持原样；重启软件商店生效",
+            notify = true,
+        )
+        category("原有优化")
         switch(
             key = "remove_market_splash_page_app_recommend",
             title = c.getString(R.string.remove_market_splash_page_app_recommend),
