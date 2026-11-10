@@ -4,15 +4,19 @@
 
 The module-created `api.search.engine.e` model used resource ID `-1` and empty image fields. This correctly avoided resolving a foreign resource ID, but provided neither a bitmap nor a tab-icon URL.
 
-In the freshly inspected 40.10.25.2 reference APK:
+The original 40.10.21.9.6 and 40.10.25.2 APKs were both freshly inspected. The current APK is 272305359 bytes, SHA256 `caeda453881561b60e2342004688b86c830468dcb8e42a06231286581d88b6e1`, matching `TARGET_APKS.md`. The reference SHA256 is `e60a6712963c9601d4cb7b756efd3d66c16e5b5bc4576fac92a3ba557d8f3a2a`.
+
+Both builds have the following native binding:
 
 - `search.impl.engine.c.getIcon()` reads `k.l()` (light bitmap) or `k.g()` (dark bitmap).
 - `k.E(Bitmap)` supplies the light bitmap. Its native dark lookup already falls back to the light bitmap.
 - `PagerTabItemView.d(engine)` binds the label, retaining the engine in field `e`.
-- `PagerTabItemView.f(engine)` reads the light/dark tab URLs from `c.B()` / `c.z()`, and calls `BrowserDraweeView.setImageURI(Uri, Object)` on field `c`.
+- `PagerTabItemView.f(engine)` reads the light/dark tab URLs from `c.C()` / `c.A()` in 40.10.21.9.6 and `c.B()` / `c.z()` in 40.10.25.2, and calls `BrowserDraweeView.setImageURI(Uri, Object)` on field `c`.
 - The bundled Fresco `DataFetchProducer` accepts `data:` URIs and decodes their base64 payloads, so the hook supplies local PNG bytes rather than a remote image URL. This is static pipeline evidence, not a device-rendering test.
 - Those URLs originate in the sixth/seventh String properties of the engine data model, not in `getIcon()`. Supplying only a bitmap therefore cannot fix the result tabs.
 - `initialize()` creates the icon container through `a(RelativeLayout)` only when `setShouldDisplayTabIcon(true)` permits it.
+
+The current build places the data model in `classes2.dex`, the engine wrapper/native model in `classes3.dex`, the tab views in `classes7.dex`, and `DataFetchProducer` in `classes8.dex`. The reference tab views are in `classes9.dex`. Hooked methods and fields (`d`, `f`, `a(RelativeLayout)`, `setShouldDisplayTabIcon`, fields `c`/`e`, and `k.E(Bitmap)`) match both builds. The differing URL getter names and internal Drawee factory names are not hooked or called by the module.
 
 The hook affects only module-created `reborn_` engines. It seeds their native bitmap and supplies a small local PNG data URI at the actual tab binding, including theme refresh. If a module tab lacks its icon container, the verified native creation method runs before label placement. Existing engine routing, default-engine precedence, list selection and native engine icons are unchanged. Icon initialization errors do not prevent search-engine construction.
 

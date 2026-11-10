@@ -44,12 +44,6 @@ class BrowserHomeReplacement(
     private var reportedInstall = false
 
     override fun onHook() {
-        if (mode == RebornBrowserConfig.URL) {
-            hookExplicitHomeClick()
-            hookSubpageSelection()
-            hookExplicitWebHomeClicks()
-            hookNativeTabRoutes()
-        }
         try {
             val fragmentClass = "com.heytap.browser.home.NormalHomePageFragment".toClassOrNull()
                 ?: error("NormalHomePageFragment unavailable")
@@ -59,13 +53,30 @@ class BrowserHomeReplacement(
                 it.parameterTypes.contentEquals(arrayOf(Context::class.java, LayoutInflater::class.java, ViewGroup::class.java)) &&
                     it.returnType == View::class.java
             }
-            fragmentClass.resolve().firstMethod { name = create.name }.hook {
-                after { bindFragment(instance) }
-            }
             val attachName = when (create.name) {
                 "xh" -> "ci"
                 "yh" -> "di"
                 else -> error("Unknown NormalHomePageFragment creation signature: ${create.name}")
+            }
+            if (mode == RebornBrowserConfig.URL) {
+                // Do this before *any* URL lifecycle/replacement hook is installed.
+                // g1/g0 and h1/h0 have verified semantics only in these two APKs.
+                val manager = (hostApplication ?: systemContext)?.packageManager
+                    ?: error("PackageManager unavailable; native homepage retained")
+                val info = manager.getPackageInfo(packageName, 0)
+                val routes = BrowserHomeNativeRoutes.select(info.versionName, info.longVersionCode, create.name)
+                    ?: error("Unverified browser URL routing version ${info.versionName}/${info.longVersionCode}; native homepage retained")
+                val tab = "com.heytap.browser.tab.BaseTab".toClassOrNull() ?: error("BaseTab unavailable")
+                val page = "com.heytap.browser.page.TabPageFragment".toClassOrNull() ?: error("TabPageFragment unavailable")
+                check(routes.matches(tab, page)) { "Browser URL route signature mismatch; native homepage retained" }
+                hookNativeTabRoutes(routes)
+                hookExplicitHomeClick()
+                hookSubpageSelection()
+                hookExplicitWebHomeClicks()
+                YLog.info("Reborn: verified URL routing ${info.versionName}: ${routes.returnHome}/${routes.pageChanged}")
+            }
+            fragmentClass.resolve().firstMethod { name = create.name }.hook {
+                after { bindFragment(instance) }
             }
             fragmentClass.resolve().firstMethod { name = attachName; parameters() }.hook {
                 after { bindFragment(instance) }
@@ -181,12 +192,12 @@ class BrowserHomeReplacement(
         }
     }
 
-    private fun hookNativeTabRoutes() {
+    private fun hookNativeTabRoutes(routes: BrowserHomeNativeRoutes) {
         try {
             val tab = "com.heytap.browser.tab.BaseTab".toClassOrNull() ?: error("BaseTab unavailable")
             val page = "com.heytap.browser.page.TabPageFragment".toClassOrNull() ?: error("TabPageFragment unavailable")
-            // Web/search toolbar Home uses h1, not the HomeFrame listener g.b.
-            tab.resolve().firstMethod { name = "h1"; parameters(Boolean::class); returnType = Void.TYPE }.hook {
+            // Web/search toolbar Home uses g1/h1, not the HomeFrame listener g.b.
+            tab.resolve().firstMethod { name = routes.returnHome; parameters(Boolean::class); returnType = Void.TYPE }.hook {
                 before {
                     if (explicitWebHome.get() == 0) return@before
                     val fragment = tab.getMethod("getHomePage").invoke(instance) ?: return@before
@@ -200,7 +211,7 @@ class BrowserHomeReplacement(
             }
             // onCurrentPageChanged is evidence of leaving/returning, unlike a void
             // loadUrl call which may still be waiting for native permission handling.
-            tab.resolve().firstMethod { name = "h0"; parameters(page, page); returnType = Void.TYPE }.hook {
+            tab.resolve().firstMethod { name = routes.pageChanged; parameters(page, page); returnType = Void.TYPE }.hook {
                 after {
                     val previous = args[0]
                     val current = args[1]
@@ -215,6 +226,7 @@ class BrowserHomeReplacement(
             }
         } catch (error: Exception) {
             YLog.error("Reborn: native Home tab routing signature unavailable", error)
+            throw error
         }
     }
 

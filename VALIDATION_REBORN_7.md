@@ -34,9 +34,9 @@ Detailed method evidence and failure handling are in
 ## Validation
 
 - Integrated `:app:assembleDebug`: passed.
-- Full `:app:testDebugUnitTest`: 386 tests in 56 suites passed, with zero
+- Full `:app:testDebugUnitTest`: 392 tests in 57 suites passed, with zero
   failures, errors or skipped tests. This includes 103 diagnostic tests,
-  nine unchanged Market tests, 20 homepage tests, eight profile tests and
+  nine unchanged Market tests, 26 homepage/mapping tests, eight profile tests and
   13 icon tests.
 - Icon decoding runs with Robolectric native graphics, using synthetic
   malformed/PNG/WebP/ICO inputs and actual Bing, Google and DuckDuckGo ICO
@@ -44,7 +44,7 @@ Detailed method evidence and failure handling are in
   is not counted as a successful downloaded-icon decode.
 - Independent static review and `git diff --check`: passed. No tests were
   disabled and no lint suppressions or baselines were added.
-- Full `:app:lintDebug`: failed with 406 errors, 657 warnings and 28 hints.
+- Full `:app:lintDebug`: failed with 406 errors, 660 warnings and 28 hints.
   All 406 errors are `MissingTranslation` entries in unchanged
   `app/src/main/res/values/strings.xml`. This is not a clean lint result.
 - APK package/version/API/ABI, ZIP CRC, v2 signature, Xposed metadata,
@@ -52,11 +52,19 @@ Detailed method evidence and failure handling are in
   passed on the pre-publication build. The final published source revision
   is rebuilt into the APK and these artifact checks are repeated.
 
-Current-version APK cross-check results will be recorded before publication.
-The fresh reference APK inspected is 40.10.25.2, SHA-256
+Both original browser APKs were freshly inspected. The user's current build
+is 40.10.21.9.6 (code 10210906), 272305359 bytes, SHA-256
+`caeda453881561b60e2342004688b86c830468dcb8e42a06231286581d88b6e1`.
+The reference is 40.10.25.2 (code 10250200), SHA-256
 `e60a6712963c9601d4cb7b756efd3d66c16e5b5bc4576fac92a3ba557d8f3a2a`.
-The user's screenshot identifies 40.10.21.9.6_dba1160. Reference DEX inspection
-does not establish compatibility with a different build.
+The current BaseTab Home/page-change methods are `g1`/`g0`; the reference uses
+`h1`/`h0`. This difference was found in the actual APK and corrected before
+release. Version name, version code, fragment creation method and complete
+method signatures select a verified pair. Unknown URL-routing versions retain
+the native Home rather than installing an unsupported replacement layer.
+The current cash view hierarchy/inherited fields and all icon hook bindings
+were also cross-checked. APK signatures verified successfully; both originals
+have matching signing certificates for their respective Android signing ranges.
 
 No OPPO phone or Vector/LSPosed runtime is attached. Remaining device checks
 include cold start, direct Home from native/web/search pages, Back/Forward,
