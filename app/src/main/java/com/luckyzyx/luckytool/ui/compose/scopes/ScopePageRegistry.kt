@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,6 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.luckyzyx.luckytool.R
+import com.luckyzyx.luckytool.ui.compose.components.LocalHookDiagnosticUi
+import com.luckyzyx.luckytool.ui.compose.components.rememberHookDiagnosticUi
+import com.luckyzyx.luckytool.utils.ModulePrefs
 import com.luckyzyx.luckytool.ui.compose.components.PrefIndexItem
 import com.luckyzyx.luckytool.ui.compose.components.PrefScopeBuilder
 import com.luckyzyx.luckytool.ui.compose.components.ScopeScreen
@@ -279,6 +283,21 @@ internal fun ScopePageContent(
     scrollTarget: ScrollTarget? = null,
     onNavigate: ((target: String, title: String?) -> Unit)? = null,
 ) {
+    val diagnostics = if (spec.prefsName == ModulePrefs) {
+        rememberHookDiagnosticUi(spec.scopes.toList().ifEmpty { listOf(spec.packName) })
+    } else null
+    CompositionLocalProvider(LocalHookDiagnosticUi provides diagnostics) {
+        ScopePageContentBody(spec, state, modifier, sendValue, scrollTarget, onNavigate)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScopePageContentBody(
+    spec: ScopePageSpec, state: PrefState, modifier: Modifier,
+    sendValue: (key: String, value: Any) -> Unit,
+    scrollTarget: ScrollTarget?, onNavigate: ((target: String, title: String?) -> Unit)?,
+) {
     val contentSlot = when (LocalUiMode.current) {
         UiMode.Miuix -> spec.contentMiuix
         UiMode.Material -> spec.contentMaterial
@@ -304,6 +323,7 @@ internal fun ScopePageContent(
     state.revision.collectAsStateWithLifecycle().value
 
     val builder = remember(state) { PrefScopeBuilder(state) }
+    builder.diagnostics = LocalHookDiagnosticUi.current
     builder.sendValue = sendValue
     builder.navigate = onNavigate
     builder.context = LocalContext.current.applicationContext

@@ -4,6 +4,7 @@ import androidx.collection.arrayMapOf
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
+import com.luckyzyx.luckytool.diagnostics.ObservedFeature
 import com.luckyzyx.luckytool.utils.safeOfNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,12 +28,18 @@ object RemoveMmsCardMarketingButton : YukiBaseHooker() {
     )
 
     override fun onHook() {
-        //Source JSONObject
-        JSONObject::class.resolve().apply {
-            firstConstructor { parameters(String::class) }.hook {
-                after {
-                    val js = instance<JSONObject>()
-                    safeOfNull {  formatJson(js) }
+        val feature = ObservedFeature("remove_mms_card_marketing_button", true)
+        feature.setup {
+            //Source JSONObject
+            JSONObject::class.resolve().apply {
+                firstConstructor { parameters(String::class) }.hook {
+                    after {
+                        val js = instance<JSONObject>()
+                        safeOfNull {
+                            if (!js.has(ENTITIES) || !js.has(MSG_ID) || !js.has(DATE)) return@safeOfNull
+                            feature.callback { formatJson(js) }
+                        }
+                    }
                 }
             }
         }

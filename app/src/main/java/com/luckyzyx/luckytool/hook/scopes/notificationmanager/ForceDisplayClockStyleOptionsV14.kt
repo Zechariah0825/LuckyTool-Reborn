@@ -7,6 +7,7 @@ import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.extension.kavaref.toClass
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
+import com.luckyzyx.luckytool.diagnostics.ObservedFeature
 import org.lsposed.lsparanoid.Obfuscate
 
 @Obfuscate
@@ -24,45 +25,53 @@ object ForceDisplayClockStyleOptionsV14 : YukiBaseHooker() {
 
     @SuppressLint("DiscouragedApi")
     override fun onHook() {
-        //Source KeyguardLauncherPageProvider
-        "com.oplus.keyguard.keyguardsettings.KeyguardLauncherPageProvider".toClass().resolve()
-            .apply {
-                firstMethod { name = "initKeyguardLandClockPf" }.hook {
-                    before {
-                        val isFlavorTwoDevice = providerClient.toClass().resolve().firstField {
-                            name = "isFlavorTwoDevice"
-                        }.get<Boolean>() ?: false
-                        if (!isFlavorTwoDevice) return@before
+        // Loaded only when this exact switch is enabled.
+        val feature = ObservedFeature("force_display_clock_style_options", true)
+        feature.setup {
+            //Source KeyguardLauncherPageProvider
+            "com.oplus.keyguard.keyguardsettings.KeyguardLauncherPageProvider".toClass().resolve()
+                .apply {
+                    firstMethod { name = "initKeyguardLandClockPf" }.hook {
+                        before {
+                            val isFlavorTwoDevice = feature.setup {
+                                providerClient.toClass().resolve().firstField {
+                                    name = "isFlavorTwoDevice"
+                                }.get<Boolean>() ?: false
+                            }
+                            if (!isFlavorTwoDevice) return@before
 
-                        val list = firstArg().get<ArrayList<Any>>()
-                        val context = firstMethod { name = "getContext";superclass() }.of(instance)
-                            .invoke<Context>()
-                        val clockTitle = context?.getString(
-                            context.resources.getIdentifier(
-                                "oplus_keyguard_land_clock_type_title", "string",
-                                this@ForceDisplayClockStyleOptionsV14.packageName
-                            )
-                        )
-                        val keyguardLandClockPf = firstMethod {
-                            name = "createPerfrenceBean";superclass()
-                        }.of(instance).invoke(type, key, 70, clockTitle, category)
-                        keyguardLandClockPf?.asResolver()?.firstMethod { name = "setIntentPackage" }
-                            ?.invoke("com.oplus.notificationmanager")
-                        keyguardLandClockPf?.asResolver()?.firstMethod { name = "setIntentClass" }
-                            ?.invoke("com.oplus.keyguard.keyguardsettings.KeyguardLandClockActivity")
+                            feature.callback {
 
-                        val hashMap = firstField { name = "preferenceHashMap" }.of(instance)
-                            .get<HashMap<String, Any>>()
-                        firstMethod { name = "addPreferenceMap" }.of(instance).invoke(
-                            hashMap, key, keyguardLandClockPf
-                        )
-                        keyguardLandClockPf?.let { list?.add(it) }
-                        result = null
+                                val list = firstArg().get<ArrayList<Any>>()
+                                val context = firstMethod { name = "getContext";superclass() }.of(instance)
+                                    .invoke<Context>()
+                                val clockTitle = context?.getString(
+                                    context.resources.getIdentifier(
+                                        "oplus_keyguard_land_clock_type_title", "string",
+                                        this@ForceDisplayClockStyleOptionsV14.packageName
+                                    )
+                                )
+                                val keyguardLandClockPf = firstMethod {
+                                    name = "createPerfrenceBean";superclass()
+                                }.of(instance).invoke(type, key, 70, clockTitle, category)
+                                keyguardLandClockPf?.asResolver()?.firstMethod { name = "setIntentPackage" }
+                                    ?.invoke("com.oplus.notificationmanager")
+                                keyguardLandClockPf?.asResolver()?.firstMethod { name = "setIntentClass" }
+                                    ?.invoke("com.oplus.keyguard.keyguardsettings.KeyguardLandClockActivity")
+
+                                val hashMap = firstField { name = "preferenceHashMap" }.of(instance)
+                                    .get<HashMap<String, Any>>()
+                                firstMethod { name = "addPreferenceMap" }.of(instance).invoke(
+                                    hashMap, key, keyguardLandClockPf
+                                )
+                                keyguardLandClockPf?.let { list?.add(it) }
+                                result = null
+                            }
+                        }
                     }
                 }
-            }
 
-        //Source KeyguardSettingsSearchProvider
+            //Source KeyguardSettingsSearchProvider
 //        "com.oplus.keyguard.settingsearch.KeyguardSettingsSearchProvider".toClass().apply {
 //            method { name = "initSearchData";paramCount = 1 }.hook {
 //                after {
@@ -101,5 +110,6 @@ object ForceDisplayClockStyleOptionsV14 : YukiBaseHooker() {
 //                }
 //            }
 //        }
+        }
     }
 }
