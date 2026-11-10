@@ -1,0 +1,36 @@
+# Hook diagnostics
+
+Integrated in Reborn v0.6 on the browser-fix base `6d7b5f4098359d4f3ba4250ee2ca020b9065adc4`. The reconstructed integrated source was compiled and tested again: full APK assembly and all 354 tests in 53 suites passed, including 103 diagnostic tests in seven suites. These are source/JVM/Robolectric results, not phone execution evidence. Full lint and artifact checks are recorded separately in `VALIDATION_REBORN_6.md`.
+
+## Evidence, not a green light
+
+- Off is saved configuration only. A running target may still need a restart.
+- No response is unknown, not failure. The app may not be running, scoped, initialized, or reachable.
+- A response proves that the module loaded in a process, not that any feature works.
+- Registration success requires a real receipt. YukiHook 1.5.0's onHooked/onHookingFailure are empty methods, and the DSL can swallow registration failures. No generic wrapper marks registration successful.
+- Callback entry is counted only in the relevant target path where a shared method needs filtering. Counts are per process session and do not prove final user-visible behavior.
+- Mutations are shown only when explicitly measured. The calendar holiday pilot counts actual URL rewrites. Other enrolled features say the final modification/effect is unverified, not zero.
+- Direct setup/callback failures retain their original propagation behavior. Only exception class names are reported, not messages or stacks.
+- Old module/configuration evidence is rejected or clearly labeled. Recent reports expire after 15 seconds; no claim that a recently responding process is still alive.
+
+## Scope and limits
+
+105 unique setting keys are enrolled: 104 shared UI switches and one string mode, across 107 Hook files and 24 scope directories. The static UI inventory has 386 literal switches, so 282 remain uninstrumented. Generated keys and custom-rendered controls require separate auditing. Run `python scripts/audit-hook-diagnostics.py` for the checked exact list.
+
+Browser/Market repair hooks are not enrolled in this diagnostic batch. Compound/global FeatureConfig, SystemProperties, multi-setting layouts, async tasks and direct field writes require precise key/dependency attribution or readback; generic callbacks must not claim every enabled feature is effective. Enabling a switch is never evidence.
+
+## Transport and lifecycle
+
+The existing Yuki data channel targets the host/module packages. A random 128-bit challenge rejects stale/mismatched responses; schema, package, digest, name, counter and byte limits are validated. This is diagnostics, not security attestation against a compromised host. No new exported components or permissions are added.
+
+Settings and loaded APK paths are typed SHA-256 fingerprints. No raw URLs, searches, browsing data or exception messages cross the channel. Build identity includes version and install path; unusual in-place replacement is not a cryptographic code-identity guarantee.
+
+Targets store bounded observations in memory only (128 features). No disk/Binder/network work runs in feature callbacks. The app polls only while its settings page is STARTED, every three seconds. Replies are rate limited, retain at most 16 processes per package, and replace restarted-session counters. Shared-UID processes register each loaded package namespace independently and reuse a process session identity. Duplicate cumulative snapshots from those namespaces are merged by per-counter maximum, so one process is not counted twice; configuration and version mismatches are checked before merging.
+
+## Validation required
+
+Compile, full unit tests, lint outcome, APK generation and on-device checks must be reported separately. Device acceptance must cover no module/scope, closed target, actual feature invocation, missing target class, toggling without restart, module reinstall with old target process, target restart, expired responses, Material/Miuix layouts, search jump/highlight, conditional rows and navigation. System-server/shared-UID delivery requires actual ROM/LSPosed testing.
+
+Host APK identity is also checked separately from the module: a loaded host source-path fingerprint is compared with the currently installed target's source path, refreshed while the page is visible. Normal updates/reinstalls change this path. A mismatch or unknown loaded fingerprint cannot validate the current installed target. This is not a cryptographic version attestation; unusual in-place APK replacement and inaccessible package metadata remain limitations.
+
+The data-channel defense prevents an unrelated ordinary app from satisfying a pending challenge without the unpredictable nonce sent only to the target package. A malicious target/rooted OS is outside this attestation boundary. The reconstructed test suite passed request gating, nonce/package/schema rejection and expired-evidence checks. Actual cross-process broadcasts on a ColorOS/LSPosed device still require device acceptance and are not claimed as tested by JVM/Robolectric suites.

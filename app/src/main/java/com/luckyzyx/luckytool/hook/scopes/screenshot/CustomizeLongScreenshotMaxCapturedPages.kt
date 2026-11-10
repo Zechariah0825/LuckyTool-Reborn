@@ -6,6 +6,8 @@ import com.highcapable.kavaref.extension.classOf
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.extension.kavaref.toClass
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
+import com.luckyzyx.luckytool.diagnostics.ObservedFeature
+import com.luckyzyx.luckytool.diagnostics.interceptObserved
 import com.luckyzyx.luckytool.utils.DexkitUtils.checkDataList
 import org.lsposed.lsparanoid.Obfuscate
 import org.luckypray.dexkit.DexKitBridge
@@ -13,39 +15,42 @@ import org.luckypray.dexkit.DexKitBridge
 @Obfuscate
 class CustomizeLongScreenshotMaxCapturedPages(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
     override fun onHook() {
-        //Source ScrollCaptureConfigs -> scroll_configs_max_captured_pages / scroll_configs_max_captured_pixels
-        //Source StitchLimitUtils -> isCapturedPagesReachLimit / trimToStitchLimit
-        dexKitBridge.findClass {
-            matcher {
-                fieldCount(0)
-                methods {
-                    add { returnType(classOf<Int>()) }
-                    add { returnType(classOf<Boolean>()) }
-                    add {
-                        paramTypes(classOf<Int>(), classOf<Int>())
-                        returnType(classOf<Int>())
+        val feature = ObservedFeature("remove_page_limit_for_long_screenshots", true)
+        feature.setup {
+            //Source ScrollCaptureConfigs -> scroll_configs_max_captured_pages / scroll_configs_max_captured_pixels
+            //Source StitchLimitUtils -> isCapturedPagesReachLimit / trimToStitchLimit
+            dexKitBridge.findClass {
+                matcher {
+                    fieldCount(0)
+                    methods {
+                        add { returnType(classOf<Int>()) }
+                        add { returnType(classOf<Boolean>()) }
+                        add {
+                            paramTypes(classOf<Int>(), classOf<Int>())
+                            returnType(classOf<Int>())
+                        }
                     }
+                    usingStrings("StitchLimitUtils")
                 }
-                usingStrings("StitchLimitUtils")
-            }
-        }.apply {
-            checkDataList("CustomizeLongScreenshotMaxCapturedPages")
-            single().name.toClass().resolve().apply {
-                //isCapturedPagesReachLimit
-                firstMethod {
-                    parameters(VagueType, Int::class)
-                    parameterCount = 2
-                    returnType = Boolean::class
-                }.hook {
-                    intercept(false)
-                }
-                //trimToStitchLimit
-                firstMethod {
-                    parameters(VagueType, Int::class, Int::class)
-                    parameterCount = 3
-                    returnType = Int::class
-                }.hook {
-                    intercept(-1)
+            }.apply {
+                checkDataList("CustomizeLongScreenshotMaxCapturedPages")
+                single().name.toClass().resolve().apply {
+                    //isCapturedPagesReachLimit
+                    firstMethod {
+                        parameters(VagueType, Int::class)
+                        parameterCount = 2
+                        returnType = Boolean::class
+                    }.hook {
+                        interceptObserved(feature, false)
+                    }
+                    //trimToStitchLimit
+                    firstMethod {
+                        parameters(VagueType, Int::class, Int::class)
+                        parameterCount = 3
+                        returnType = Int::class
+                    }.hook {
+                        interceptObserved(feature, -1)
+                    }
                 }
             }
         }

@@ -1,7 +1,5 @@
 package com.luckyzyx.luckytool.hook.scopes.market
 
-import android.view.View
-import android.view.ViewTreeObserver
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.extension.kavaref.toClassOrNull
@@ -10,199 +8,99 @@ import com.highcapable.yukihookapi.hook.log.YLog
 import org.lsposed.lsparanoid.Obfuscate
 
 /**
- * OPPO Market captured build:  SubTabCardDto / SubTabCardGlobalDto expose
- * getSubTabDtoList(), entries expose getTitle(), model SubTabDto exposes getName().
- * Filter the DTO before the tabs/pager are built. Preserve every other tab and order.
+ * 26.10.2_CN assigns the original firstPagePos to HomeChosenCardFragment BEFORE
+ * constructing the other pages. Never filter its source DTO or change that index:
+ * doing so relabels the recommendation feed as 应用时刻. Filter completed pairs only.
  */
 @Obfuscate
 class MarketHomeTabs : YukiBaseHooker() {
-    override fun onHook() {
-        // The home feed has its own recommendation card, separate from tab DTOs.
-        loadHooker(MarketHomeFeaturedContent())
-        listOf(
-            "com.heytap.cdo.card.domain.dto.SubTabCardDto",
-            "com.heytap.cdo.card.global.dto.SubTabCardGlobalDto",
-            "com.heytap.card.main.api.model.TabDto",
-        ).forEach { className ->
-            val klass = className.toClassOrNull() ?: return@forEach
-            try {
-                klass.resolve().firstMethod { name = "getSubTabDtoList" }.hook {
-                    after {
-                        val original = result as? List<*> ?: return@after
-                        stripFeatured(original)?.let { filtered ->
-                            result = filtered
-                            // Deserializers may write fields without the setter. Keep
-                            // the backing DTO consistent with its filtered getter.
-                            try {
-                                instance?.let { owner ->
-                                    owner.javaClass.methods.firstOrNull {
-                                        it.name == "setSubTabDtoList" && it.parameterCount == 1 &&
-                                            it.parameterTypes[0].isInstance(filtered)
-                                    }?.invoke(owner, filtered)
-                                }
-                            } catch (error: Throwable) {
-                                YLog.error("Reborn: cannot synchronize Market tab data", error)
-                            }
-                        }
-                    }
-                }
-            } catch (error: Throwable) {
-                YLog.error("Reborn: Market tab getter changed: $className", error)
-            }
-            try {
-                // Strip before the DTO is stored as well, so pager and tab labels
-                // cannot later diverge by reading the unfiltered backing field.
-                klass.resolve().firstMethod { name = "setSubTabDtoList" }.hook {
-                    before {
-                        val original = firstArg().get<List<*>>() ?: return@before
-                        stripFeatured(original)?.let { firstArg().set(it) }
-                    }
-                }
-            } catch (error: Throwable) {
-                YLog.error("Reborn: Market tab setter changed: $className", error)
-            }
-            // These card DTOs keep the startup pager position separately from the
-            // list. Resolve it AFTER filtering; otherwise removal shifts the index.
-            if (className != "com.heytap.card.main.api.model.TabDto") {
-                try {
-                    klass.resolve().firstMethod { name = "getFirstPagePos" }.hook {
-                        after {
-                            val owner = instance ?: return@after
-                            val tabs = try {
-                                owner.javaClass.getMethod("getSubTabDtoList").invoke(owner) as? List<*>
-                            } catch (_: Throwable) { null } ?: return@after
-                            val index = RebornMarketTabRules.appMomentIndex(tabs, ::tabName)
-                            if (index >= 0) result = index
-                        }
-                    }
-                } catch (error: Throwable) {
-                    YLog.error("Reborn: Market startup position changed: $className", error)
-                }
-            }
-        }
-    }
-
-    private fun stripFeatured(original: List<*>): List<*>? {
-        val updated = RebornMarketTabRules.removeFeatured(original, ::tabName) ?: return null
-        // Exactly one tab may be the default. Leaving a previous flag set can
-        // make the native pager choose a different tab depending on iteration order.
-        updated.filterNotNull().forEach { markDefaultSelected(it, tabName(it) == "应用时刻") }
-        // Preserve mutable ArrayList expected by legacy TabDto setters.
-        return ArrayList(updated)
-    }
-
-    private fun tabName(item: Any?): String? {
-        if (item == null) return null
-        return try {
-            val method = item.javaClass.methods.firstOrNull {
-                it.parameterCount == 0 && it.name in setOf("getTitle", "getName")
-            } ?: return null
-            method.invoke(item)?.toString()?.trim()
-        } catch (_: Throwable) { null }
-    }
-
-    private fun markDefaultSelected(item: Any, selected: Boolean) {
-        try {
-            item.javaClass.methods.firstOrNull {
-                it.name == "setDefaultSelected" && it.parameterCount == 1 &&
-                    it.parameterTypes[0] == Int::class.javaPrimitiveType
-            }?.invoke(item, if (selected) 1 else 0)
-        } catch (_: Throwable) { /* View-level fallback still runs */ }
-    }
-}
-
-/** Selects App Moment once per view, without overriding subsequent user tab changes.
- * Invoked after subtab construction; never removes a visual tab unless its text matches.
- */
-@Obfuscate
-class MarketHomeTabSelection : YukiBaseHooker() {
-    // The tab view is attached before the server-provided titles are populated.
-    // Keep watching layout until the requested tab exists, rather than posting once.
-    private val completed = java.util.WeakHashMap<View, Boolean>()
-    private val watching = java.util.WeakHashMap<View, Boolean>()
+    private data class PendingSelection(val selected: Int, val home: Int)
+    private val pendingSelection = java.util.WeakHashMap<Any, PendingSelection>()
+    private val installedTitles = java.util.WeakHashMap<Any, List<String>>()
 
     override fun onHook() {
-        val cls = "com.heytap.cdo.client.cards.page.main.home.tab.view.ScrollIdleTabLayout"
+        val presenter = "com.heytap.cdo.client.cards.page.main.home.tab.HomeSubTabPresenter"
             .toClassOrNull() ?: return
-        // The supplied 26.10.2 APK inherits this method from COUITabLayout.
-        // Hook its actual declaring class and gate callbacks to the target subtype.
-        val owner = generateSequence(cls as Class<*>?) { it.superclass }.firstOrNull { type ->
-            type.declaredMethods.any { it.name == "onAttachedToWindow" && it.parameterCount == 0 }
-        } ?: return
         try {
-            owner.resolve().firstMethod { name = "onAttachedToWindow" }.hook {
+            presenter.resolve().firstMethod {
+                // Native final binding: pagerAdapter.setItems(pages), tabLayout.bind(tabs).
+                name = "\u079a"
+                parameters(List::class, List::class)
+            }.hook {
+                before {
+                    val owner = instance ?: return@before
+                    val tabs = args[0] as? List<*> ?: return@before
+                    val pages = args[1] as? List<*> ?: return@before
+                    try {
+                        val signatures = pages.map { pageSignature(it) ?: return@before }
+                        val layout = presenter.getDeclaredField("\u08a8").apply { isAccessible = true }.get(owner)
+                        val selectedPosition = layout?.javaClass?.getMethod("getSelectedTabPosition")
+                            ?.invoke(layout) as? Int
+                        val selectedTitle = selectedPosition?.let { installedTitles[owner]?.getOrNull(it) }
+                        val filtered = RebornMarketTabRules.filterPairs(
+                            tabs, pages, signatures, selectedTitle, ::tabName,
+                        ) ?: return@before
+                        // During binding the one-shot native observer reads the default
+                        // index to select a page. Temporarily supply the restored current
+                        // index, then put the App Moment Back target back in after().
+                        // This never touches the source DTO firstPagePos.
+                        val current = presenter.getDeclaredField("\u08af").apply { isAccessible = true }
+                        val startup = presenter.getDeclaredField("\u08b3").apply { isAccessible = true }
+                        if (current.type != Int::class.javaPrimitiveType || startup.type != Int::class.javaPrimitiveType)
+                            return@before
+                        val titles = filtered.tabs.map { tabName(it)!!.trim() }
+                        val filteredTabs = ArrayList(filtered.tabs)
+                        val filteredPages = ArrayList(filtered.pages)
+                        pendingSelection[owner] = PendingSelection(filtered.selectedIndex, filtered.homeIndex)
+                        current.setInt(owner, filtered.selectedIndex)
+                        startup.setInt(owner, filtered.selectedIndex)
+                        args[0] = filteredTabs
+                        args[1] = filteredPages
+                        installedTitles[owner] = titles
+                    } catch (error: Throwable) {
+                        pendingSelection.remove(owner)
+                        YLog.error("Reborn: Market paired home pages changed; keeping native pages", error)
+                    }
+                }
                 after {
-                    val view = instance as? View ?: return@after
-                    if (cls.isInstance(view)) watch(view)
+                    val owner = instance ?: return@after
+                    val selection = pendingSelection.remove(owner) ?: return@after
+                    try {
+                        presenter.getDeclaredField("\u08af").apply { isAccessible = true }
+                            .setInt(owner, selection.home)
+                        val pager = presenter.getDeclaredField("\u08aa").apply { isAccessible = true }.get(owner)
+                        pager.javaClass.getMethod("setCurrentItem", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+                            .invoke(pager, selection.selected, false)
+                        // Same-index selection does not dispatch onPageSelected.
+                        // Synchronize native Back registration with the restored home.
+                        val actual = pager.javaClass.getMethod("getCurrentItem").invoke(pager) as? Int
+                        if (actual != null && actual in (installedTitles[owner]?.indices ?: IntRange.EMPTY)) {
+                            presenter.getMethod("onPageSelected", Int::class.javaPrimitiveType).invoke(owner, actual)
+                        }
+                    } catch (error: Throwable) {
+                        YLog.error("Reborn: Market home page selection changed", error)
+                    }
                 }
             }
         } catch (error: Throwable) {
-            YLog.error("Reborn: Market home tab layout changed", error)
+            YLog.error("Reborn: Market home page binding changed", error)
         }
     }
 
-    private fun watch(view: View) {
-        if (completed[view] == true || watching[view] == true) return
-        watching[view] = true
-        val observer = view.viewTreeObserver
-        var stopped = false
-        lateinit var layout: ViewTreeObserver.OnGlobalLayoutListener
-        lateinit var attachment: View.OnAttachStateChangeListener
-        lateinit var timeout: Runnable
-        fun stop() {
-            if (stopped) return
-            stopped = true
-            if (observer.isAlive) observer.removeOnGlobalLayoutListener(layout)
-            view.removeOnAttachStateChangeListener(attachment)
-            view.removeCallbacks(timeout)
-            watching.remove(view)
-        }
-        fun attempt() {
-            if (!stopped && selectAppMoment(view)) {
-                completed[view] = true
-                stop()
-            }
-        }
-        layout = ViewTreeObserver.OnGlobalLayoutListener { attempt() }
-        attachment = object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) = Unit
-            override fun onViewDetachedFromWindow(v: View) = stop()
-        }
-        timeout = Runnable { stop() }
-        observer.addOnGlobalLayoutListener(layout)
-        view.addOnAttachStateChangeListener(attachment)
-        // A frame-count cap expired before slow server responses. Allow a bounded
-        // time window, and always unregister when the view detaches.
-        view.postDelayed(timeout, 15_000L)
-        view.post { attempt() }
-    }
+    private fun tabName(item: Any?): String? = try {
+        item?.javaClass?.getMethod("getTitle")?.invoke(item) as? String
+    } catch (_: ReflectiveOperationException) { null }
 
-    private fun selectAppMoment(view: View): Boolean {
-        try {
-            val cls = view.javaClass
-            val getCount = cls.getMethod("getTabCount")
-            val getAt = cls.getMethod("getTabAt", Int::class.javaPrimitiveType)
-            val count = getCount.invoke(view) as? Int ?: return false
-            if (count < 1) return false
-            var chosen: Any? = null
-            for (i in 0 until count) {
-                val tab = getAt.invoke(view, i) ?: continue
-                val label = tab.javaClass.methods.firstOrNull {
-                    it.name == "getText" && it.parameterCount == 0
-                }?.invoke(tab)?.toString()?.trim()
-                if (label == "应用时刻") chosen = tab
-            }
-            if (chosen != null) {
-                // selectTab is a native TabLayout API and updates the attached ViewPager.
-                val select = chosen.javaClass.methods.firstOrNull {
-                    it.name == "select" && it.parameterCount == 0
-                } ?: return false
-                select.invoke(chosen)
-                return true
-            }
-        } catch (_: Throwable) {
-            // Early lifecycle may not have tab methods yet; retry on the next layout.
-        }
-        return false
+    private fun pageSignature(page: Any?): MarketPageSignature? {
+        if (page == null || page.javaClass.name !=
+            "com.nearme.module.ui.fragment.CdoFragmentPagerAdapter\$a") return null
+        val type = page.javaClass
+        val title = type.getDeclaredField("\u0528").apply { isAccessible = true }.get(page) as? String
+            ?: return null
+        val fragment = type.getDeclaredField("\u037f").apply { isAccessible = true }.get(page)
+            ?: return null
+        val names = generateSequence(fragment.javaClass as Class<*>?) { it.superclass }.map { it.name }
+        val actionParam = type.getDeclaredField("\u052a").apply { isAccessible = true }.get(page) as? String
+        return MarketPageSignature(title, RebornMarketTabRules.pageKind(names, actionParam))
     }
 }

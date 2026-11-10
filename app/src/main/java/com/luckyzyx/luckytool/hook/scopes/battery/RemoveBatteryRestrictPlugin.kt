@@ -1,5 +1,7 @@
 package com.luckyzyx.luckytool.hook.scopes.battery
 
+import com.luckyzyx.luckytool.diagnostics.ObservedFeature
+import com.luckyzyx.luckytool.diagnostics.interceptObserved
 import android.content.Context
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.kavaref.extension.classOf
@@ -13,34 +15,37 @@ import org.luckypray.dexkit.DexKitBridge
 @Obfuscate
 class RemoveBatteryRestrictPlugin(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
     override fun onHook() {
-        //Source PluginSupporter
-        //Search loadRestrictPlugin / battery_restrict_plugin
-        dexKitBridge.findClass {
-            matcher {
-                addFieldForType(classOf<Context>())
-                addFieldForType(classOf<String>())
-                usingStrings(
-                    "loadRestrictPlugin",
-                    "onPluginConnected"
-                )
-            }
-        }.apply {
-            checkDataList("PluginSupporter")
-
-            findMethod {
+        val feature = ObservedFeature("remove_battery_restrict_plugin", true)
+        feature.setup {
+            //Source PluginSupporter
+            //Search loadRestrictPlugin / battery_restrict_plugin
+            dexKitBridge.findClass {
                 matcher {
-                    usingStrings("loadRestrictPlugin")
+                    addFieldForType(classOf<Context>())
+                    addFieldForType(classOf<String>())
+                    usingStrings(
+                        "loadRestrictPlugin",
+                        "onPluginConnected"
+                    )
                 }
             }.apply {
-                checkDataList("loadRestrictPlugin", onlyOne = false)
+                checkDataList("PluginSupporter")
 
-                forEach {
-                    it.className.toClass().resolve().apply {
-                        firstMethod {
-                            name = single().methodName
-                            parameterCount = single().paramCount
-                        }.hook {
-                            intercept()
+                findMethod {
+                    matcher {
+                        usingStrings("loadRestrictPlugin")
+                    }
+                }.apply {
+                    checkDataList("loadRestrictPlugin", onlyOne = false)
+
+                    forEach {
+                        it.className.toClass().resolve().apply {
+                            firstMethod {
+                                name = single().methodName
+                                parameterCount = single().paramCount
+                            }.hook {
+                                interceptObserved(feature)
+                            }
                         }
                     }
                 }

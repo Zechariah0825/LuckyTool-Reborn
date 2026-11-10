@@ -4,7 +4,6 @@ import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.log.YLog
 import com.luckyzyx.luckytool.hook.scopes.market.DefaultExpandUpdateList
 import com.luckyzyx.luckytool.hook.scopes.market.MarketHomeTabs
-import com.luckyzyx.luckytool.hook.scopes.market.MarketHomeTabSelection
 import com.luckyzyx.luckytool.hook.scopes.market.RemoveMarketMinePageAppRecommend
 import com.luckyzyx.luckytool.hook.scopes.market.RemoveMarketSplashPageAppRecommend
 import com.luckyzyx.luckytool.hook.scopes.market.RemoveMarketUpdateDownloadPageAppRecommend
@@ -18,8 +17,6 @@ object HookMarket : YukiBaseHooker() {
         if (preferences(ModulePrefs).getBoolean("reborn_market_remove_featured_tab", false)) {
             try { loadHooker(MarketHomeTabs()) }
             catch (t: Throwable) { YLog.error("Reborn: MarketHomeTabs failed", t) }
-            try { loadHooker(MarketHomeTabSelection()) }
-            catch (t: Throwable) { YLog.error("Reborn: MarketHomeTabSelection failed", t) }
         }
         // Native Reborn settings do not need a DEX scan. Avoid parsing the whole
         // APK when every legacy DexKit feature is disabled.
