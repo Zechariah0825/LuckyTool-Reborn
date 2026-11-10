@@ -8,10 +8,10 @@ data class FeatureObservation(
 )
 data class ProcessObservation(
     val packageName: String, val processName: String, val session: String, val build: String,
-    val features: List<FeatureObservation>,
+    val features: List<FeatureObservation>, val hostBuild: String = "",
 )
 data class ReceivedObservation(val observation: ProcessObservation, val receivedAt: Long)
-enum class ObservationState { DISABLED, UNKNOWN, PROCESS_LOADED, CONFIG_CHANGED, BUILD_CHANGED, REGISTERED, TRIGGERED, FAILED }
+enum class ObservationState { DISABLED, UNKNOWN, PROCESS_LOADED, CONFIG_CHANGED, BUILD_CHANGED, HOST_CHANGED, REGISTERED, TRIGGERED, FAILED }
 data class FeatureStatus(val state: ObservationState, val detail: String)
 
 /** Evidence levels, never a verdict about final user-visible behavior. */
@@ -29,9 +29,12 @@ object HookObservation {
     })
     fun fresh(reports: List<ReceivedObservation>, now: Long): List<ProcessObservation> = reports
         .filter { now >= it.receivedAt && now - it.receivedAt <= FRESH_MS }.map { it.observation }
-    fun feature(key: String, value: Any, expectedBuild: String, reports: List<ProcessObservation>): FeatureStatus {
+    fun feature(key: String, value: Any, expectedBuild: String, reports: List<ProcessObservation>,
+                expectedHostBuilds: Map<String, String> = emptyMap()): FeatureStatus {
         if (value == false) return FeatureStatus(ObservationState.DISABLED, "配置已关闭；已运行进程可能需重启")
         if (reports.isEmpty()) return FeatureStatus(ObservationState.UNKNOWN, "未知：未收到目标进程回报，不能据此判定未生效")
+        if (reports.any { report -> expectedHostBuilds[report.packageName]?.let { it != report.hostBuild } == true })
+            return FeatureStatus(ObservationState.HOST_CHANGED, "目标应用安装版本已变化或无法匹配，请重启作用域后检测")
         val compatible = reports.filter { it.build == expectedBuild }
         if (compatible.isEmpty() || reports.any { r -> r.build != expectedBuild && r.features.any { it.key == key } })
             return FeatureStatus(ObservationState.BUILD_CHANGED, "目标进程仍为其他模块版本，请重启作用域后检测")

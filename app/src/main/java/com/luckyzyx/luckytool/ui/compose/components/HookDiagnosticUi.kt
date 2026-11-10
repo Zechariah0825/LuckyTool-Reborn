@@ -20,7 +20,8 @@ import com.luckyzyx.luckytool.diagnostics.ProcessObservation
 import kotlinx.coroutines.delay
 
 internal val LocalHookDiagnosticUi = compositionLocalOf<HookDiagnosticUi?> { null }
-internal data class HookDiagnosticUi(val build: String, val reports: List<ProcessObservation>) {
+internal data class HookDiagnosticUi(val build: String, val reports: List<ProcessObservation>,
+                                     val hostBuilds: Map<String, String> = emptyMap()) {
     val moduleSummary: String get() = if (reports.isEmpty()) {
         "未知：未收到目标进程回报。请确认 LSPosed 作用域、重启并打开目标应用后返回。未回报不等于未生效。"
     } else {
@@ -29,7 +30,7 @@ internal data class HookDiagnosticUi(val build: String, val reports: List<Proces
             "加载、注册、触发均不代表最终界面效果；未接入检测的项目会明确显示未知。"
     }
     fun summary(key: String, value: Any, original: String?): String = listOfNotNull(
-        original?.takeIf { it.isNotBlank() }, "检测：" + HookObservation.feature(key, value, build, reports).detail,
+        original?.takeIf { it.isNotBlank() }, "检测：" + HookObservation.feature(key, value, build, reports, hostBuilds).detail,
     ).joinToString("\n")
 }
 @Composable
@@ -49,5 +50,14 @@ internal fun rememberHookDiagnosticUi(packages: List<String>): HookDiagnosticUi 
             }
         }
     }
-    return HookDiagnosticUi(build, targets.flatMap { HookObservation.fresh(observations[it].orEmpty(), now) })
+    // Re-read installed paths on every poll, so an APK replacement while this page
+    // remains open invalidates positive evidence from the old host process.
+    val hostBuilds = remember(targets, now) { targets.mapNotNull { target ->
+        runCatching {
+            @Suppress("DEPRECATION")
+            val path = context.packageManager.getApplicationInfo(target, 0).sourceDir.orEmpty()
+            target to HookObservation.fingerprint(path)
+        }.getOrNull()
+    }.toMap() }
+    return HookDiagnosticUi(build, targets.flatMap { HookObservation.fresh(observations[it].orEmpty(), now) }, hostBuilds)
 }

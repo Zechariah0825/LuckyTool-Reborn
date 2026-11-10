@@ -30,3 +30,7 @@ Targets store bounded observations in memory only (128 features). No disk/Binder
 ## Validation required
 
 Compile, full unit tests, lint outcome, APK generation and on-device checks must be reported separately. Device acceptance must cover no module/scope, closed target, actual feature invocation, missing target class, toggling without restart, module reinstall with old target process, target restart, expired responses, Material/Miuix layouts, search jump/highlight, conditional rows and navigation. System-server/shared-UID delivery requires actual ROM/LSPosed testing.
+
+Host APK identity is also checked separately from the module: a loaded host source-path fingerprint is compared with the currently installed target's source path, refreshed while the page is visible. Normal updates/reinstalls change this path. A mismatch or unknown loaded fingerprint cannot validate the current installed target. This is not a cryptographic version attestation; unusual in-place APK replacement and inaccessible package metadata remain limitations.
+
+The data-channel defense prevents an unrelated ordinary app from satisfying a pending challenge without the unpredictable nonce sent only to the target package. A malicious target/rooted OS is outside this attestation boundary. The reconstructed test suite covers request gating, nonce/package/schema rejection and expired evidence; execution is pending. Actual cross-process broadcasts on a ColorOS/LSPosed device still require device acceptance and are not claimed as tested by JVM/Robolectric suites.

@@ -14,16 +14,15 @@ object HookDiagnostics {
             val packageName = param.packageName; val processName = param.processName
             val session = UUID.randomUUID().toString().replace("-", "")
             val build = buildFingerprint(param.module.sourceDir)
+            val hostBuild = HookObservation.fingerprint(param.appInfo.sourceDir.orEmpty())
             val channel = param.dataChannel
-            var lastRequest = Long.MIN_VALUE
+            val requestGate = HookDiagnosticRequestGate()
             channel.wait<String>(HookObservationCodec.REQUEST) { nonce ->
                 runCatching request@{
                     val now = SystemClock.elapsedRealtime()
-                    if (!HookObservationCodec.validNonce(nonce)) return@request
-                    if (lastRequest != Long.MIN_VALUE && now - lastRequest < 1000) return@request
-                    lastRequest = now
+                    if (!requestGate.allow(nonce, now)) return@request
                     channel.put(HookObservationCodec.RESPONSE, HookObservationCodec.encode(nonce,
-                        ProcessObservation(packageName, processName, session, build, store.snapshot())))
+                        ProcessObservation(packageName, processName, session, build, store.snapshot(), hostBuild)))
                 }
             }
             attached = true
