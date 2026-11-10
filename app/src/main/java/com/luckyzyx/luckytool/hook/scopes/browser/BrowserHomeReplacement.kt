@@ -37,11 +37,19 @@ class BrowserHomeReplacement(
 ) : YukiBaseHooker() {
     private val navigation = BrowserHomeRouteGate()
     private val fragments = WeakHashMap<Any, WeakReference<Any>>()
+    private val explicitWebHome = ThreadLocal.withInitial { 0 }
+    private val pendingRecovery = WeakHashMap<Any, Long>()
+    private val subpageChanges = WeakHashMap<Any, Boolean>()
     private val homeTag = Any()
     private var reportedInstall = false
 
     override fun onHook() {
-        if (mode == RebornBrowserConfig.URL) hookExplicitHomeClick()
+        if (mode == RebornBrowserConfig.URL) {
+            hookExplicitHomeClick()
+            hookSubpageSelection()
+            hookExplicitWebHomeClicks()
+            hookNativeTabRoutes()
+        }
         try {
             val fragmentClass = "com.heytap.browser.home.NormalHomePageFragment".toClassOrNull()
                 ?: error("NormalHomePageFragment unavailable")
@@ -66,6 +74,9 @@ class BrowserHomeReplacement(
             fragmentClass.resolve().firstMethod {
                 name = if (create.name == "xh") "rh" else "sh"; parameters()
             }.hook { after { bindFragment(instance) } }
+            fragmentClass.resolve().firstMethod {
+                name = if (create.name == "xh") "sh" else "th"; parameters()
+            }.hook { before { navigation.invalidate(instance) } }
             fragmentClass.resolve().firstMethod { name = "onHomeChanged"; parameterCount = 2 }.hook {
                 after { bindFragment(instance) }
             }
@@ -99,10 +110,13 @@ class BrowserHomeReplacement(
             // background tab overwrite the foreground fragment's owner mapping.
             val owner = ownerTab(fragment) ?: return
             if (owner.javaClass.getMethod("isActive").invoke(owner) != true) return
+            val previous = fragments[home]?.get()
+            if (previous != null && previous !== fragment) navigation.invalidate(previous)
             fragments[home] = WeakReference(fragment)
             val major = readFieldOfType(home, "com.heytap.browser.main.home.normal.major.MajorHomePage") ?: return
             val container = major.javaClass.getMethod("getView").invoke(major) as? FrameLayout ?: return
             installHome(major, home, container)
+            container.requestLayout()
             if (mode == RebornBrowserConfig.URL) queueUrlHome(fragment, home, major, container)
         } catch (error: Exception) {
             YLog.error("Reborn: homepage attachment unavailable; original retained", error)
@@ -117,7 +131,7 @@ class BrowserHomeReplacement(
         containerClass.resolve().firstMethod { name = "onMeasure"; parameters(Int::class, Int::class) }.hook {
             after {
                 val root = instance as FrameLayout
-                replacement(root)?.measure(
+                replacement(root)?.takeIf { it.visibility == View.VISIBLE }?.measure(
                     View.MeasureSpec.makeMeasureSpec(root.measuredWidth, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(root.measuredHeight, View.MeasureSpec.EXACTLY),
                 )
@@ -128,16 +142,126 @@ class BrowserHomeReplacement(
         }.hook {
             after {
                 val root = instance as FrameLayout
-                replacement(root)?.layout(0, 0, root.width, root.height)
+                replacement(root)?.takeIf { it.visibility == View.VISIBLE }?.layout(0, 0, root.width, root.height)
             }
         }
         containerClass.resolve().firstMethod { name = "onInterceptTouchEvent"; parameterCount = 1 }.hook {
-            before { if (replacement(instance as FrameLayout) != null) result = false }
+            before { if (replacement(instance as FrameLayout)?.visibility == View.VISIBLE) result = false }
         }
     }
 
     private fun replacement(root: FrameLayout): View? =
         (0 until root.childCount).map(root::getChildAt).firstOrNull { it.tag === homeTag }
+
+    private fun hookExplicitWebHomeClicks() {
+        // h1 is also used by TabManager's Back/special-URL routes. Only these
+        // verified UI Home callbacks grant a new redirect while h1 executes.
+        val listeners = listOf(
+            "com.heytap.browser.webdetails.ui.d2" to "h",
+            "com.heytap.browser.webdetails.natives.pages.BrowserBaiduToolBarWebListener" to "h",
+            "com.heytap.browser.webdetails.natives.pages.NewsBaiduToolBarWebListener" to "h",
+            "com.heytap.browser.app.search.web.baidu.SearchBaiduToolBarWebListener" to "h",
+            "com.heytap.browser.ai.page.multi.MultiSearchToolBarClickListeners" to "e",
+            "com.heytap.browser.ai.page.multi.v2.listener.MultiSearchToolBarClickListenerV2" to "e",
+        )
+        listeners.forEach { (name, method) ->
+            try {
+                val listener = name.toClassOrNull() ?: return@forEach
+                listener.resolve().firstMethod {
+                    this.name = method
+                    parameterCount = if (method == "h") 2 else 0
+                    returnType = Void.TYPE
+                }.hook {
+                    before { explicitWebHome.set(explicitWebHome.get() + 1) }
+                    after { explicitWebHome.set((explicitWebHome.get() - 1).coerceAtLeast(0)) }
+                }
+            } catch (error: Exception) {
+                YLog.error("Reborn: explicit web Home mapping unavailable: $name", error)
+            }
+        }
+    }
+
+    private fun hookNativeTabRoutes() {
+        try {
+            val tab = "com.heytap.browser.tab.BaseTab".toClassOrNull() ?: error("BaseTab unavailable")
+            val page = "com.heytap.browser.page.TabPageFragment".toClassOrNull() ?: error("TabPageFragment unavailable")
+            // Web/search toolbar Home uses h1, not the HomeFrame listener g.b.
+            tab.resolve().firstMethod { name = "h1"; parameters(Boolean::class); returnType = Void.TYPE }.hook {
+                before {
+                    if (explicitWebHome.get() == 0) return@before
+                    val fragment = tab.getMethod("getHomePage").invoke(instance) ?: return@before
+                    if (fragment.javaClass.name == "com.heytap.browser.home.NormalHomePageFragment" &&
+                        tab.getMethod("isActive").invoke(instance) == true) navigation.requestHome(fragment)
+                }
+                after {
+                    val fragment = tab.getMethod("getHomePage").invoke(instance) ?: return@after
+                    if (fragment.javaClass.name == "com.heytap.browser.home.NormalHomePageFragment") bindFragment(fragment)
+                }
+            }
+            // onCurrentPageChanged is evidence of leaving/returning, unlike a void
+            // loadUrl call which may still be waiting for native permission handling.
+            tab.resolve().firstMethod { name = "h0"; parameters(page, page); returnType = Void.TYPE }.hook {
+                after {
+                    val previous = args[0]
+                    val current = args[1]
+                    if (previous != null && previous.javaClass.name == "com.heytap.browser.home.NormalHomePageFragment" && previous !== current) {
+                        navigation.leftHome(previous)
+                    }
+                    if (current != null && current.javaClass.name == "com.heytap.browser.home.NormalHomePageFragment" && previous !== current) {
+                        navigation.returnedHome(current)
+                        bindFragment(current)
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            YLog.error("Reborn: native Home tab routing signature unavailable", error)
+        }
+    }
+
+    /** Native subpages switch inside this deferred action, not in fragment creation.
+     * Only a change to MajorHomePage authorizes another redirect. Returning from a
+     * webpage leaves the selected home subpage unchanged, so Back cannot loop.
+     */
+    private fun hookSubpageSelection() {
+        try {
+            val action = "com.heytap.browser.main.home.normal.NormalHome\$setCurrentPage\$2".toClassOrNull()
+                ?: error("NormalHome selection action unavailable")
+            action.resolve().firstMethod { name = "invoke"; parameters(); returnType = Void.TYPE }.hook {
+                before {
+                    val home = readFieldOfType(instance, "com.heytap.browser.main.home.normal.NormalHome")
+                        ?: return@before
+                    val selected = readFieldOfType(instance, "com.heytap.browser.main.home.normal.a")
+                    subpageChanges[instance] = selected != null &&
+                        selected !== readFieldOfType(home, "com.heytap.browser.main.home.normal.a")
+                }
+                after {
+                    if (subpageChanges.remove(instance) != true) return@after
+                    try {
+                        val home = readFieldOfType(instance, "com.heytap.browser.main.home.normal.NormalHome")
+                            ?: return@after
+                        val fragment = fragments[home]?.get() ?: return@after
+                        val selected = readFieldOfType(home, "com.heytap.browser.main.home.normal.a")
+                        val major = readFieldOfType(home, "com.heytap.browser.main.home.normal.major.MajorHomePage")
+                        if (selected !== major || major == null) {
+                            navigation.invalidate(fragment)
+                            return@after
+                        }
+                        val owner = ownerTab(fragment) ?: return@after
+                        if (owner.javaClass.getMethod("isActive").invoke(owner) != true ||
+                            owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return@after
+                        navigation.rearm(fragment)
+                        val view = major.javaClass.getMethod("getView").invoke(major) as? View ?: return@after
+                        queueUrlHome(fragment, home, major, view)
+                    } catch (error: Exception) {
+                        YLog.error("Reborn: native Home selection navigation unavailable", error)
+                    }
+                }
+            }
+            YLog.info("Reborn: native Home subpage selection mapping configured")
+        } catch (error: Exception) {
+            YLog.error("Reborn: native Home subpage selection signature unavailable", error)
+        }
+    }
 
     private fun hookExplicitHomeClick() {
         try {
@@ -155,8 +279,9 @@ class BrowserHomeReplacement(
                         val home = readFieldOfType(instance, "com.heytap.browser.main.home.normal.NormalHome") ?: return@before
                         val fragment = fragments[home]?.get() ?: return@before
                         val owner = ownerTab(fragment) ?: return@before
-                        if (owner.javaClass.getMethod("getCurrent").invoke(owner) === fragment) {
-                            navigation.rearm(fragment)
+                        if (owner.javaClass.getMethod("isActive").invoke(owner) == true &&
+                            owner.javaClass.getMethod("getCurrent").invoke(owner) === fragment) {
+                            navigation.requestHome(fragment)
                         }
                     } catch (error: Exception) {
                         YLog.error("Reborn: explicit Home click rearm skipped", error)
@@ -190,21 +315,19 @@ class BrowserHomeReplacement(
             reportedInstall = true
             YLog.info("Reborn: custom homepage installed in MajorContainer (mode=$mode)")
         }
+        val content = BrowserHomeContent()
         val weakContainer = WeakReference(container)
         val weakHome = WeakReference(home)
         val weakMajor = WeakReference(major)
         val refresh = {
             val root = weakContainer.get()
             if (root != null && replacement.parent === root) {
-                for (index in 0 until root.childCount) {
-                    val child = root.getChildAt(index)
-                    if (child.tag !== homeTag && child.visibility == View.VISIBLE) child.visibility = View.INVISIBLE
-                }
-                if (root.childCount > 0 && root.getChildAt(root.childCount - 1) !== replacement) replacement.bringToFront()
                 val activeHome = weakHome.get()
                 val host = activeHome?.let { fragments[it]?.get() }
+                val native = mode == RebornBrowserConfig.URL && host != null && navigation.showNativeHome(host)
+                content.show(root, replacement, native)
                 val page = weakMajor.get()
-                if (mode == RebornBrowserConfig.URL && host != null && activeHome != null && page != null) {
+                if (!native && mode == RebornBrowserConfig.URL && host != null && activeHome != null && page != null) {
                     val current = runCatching {
                         readFieldOfType(activeHome, "com.heytap.browser.main.home.normal.a")
                     }.getOrNull()
@@ -250,40 +373,70 @@ class BrowserHomeReplacement(
     }
 
     private fun buildHome(context: Context, home: Any): View = when (mode) {
-        RebornBrowserConfig.URL -> buildUrlHome(context, home)
+        RebornBrowserConfig.URL -> buildUrlHome(context)
         RebornBrowserConfig.SHORTCUTS -> buildShortcutHome(context, home)
         else -> FrameLayout(context).apply { setBackgroundColor(background(context)) }
     }
 
-    private fun buildUrlHome(context: Context, home: Any): View {
-        val url = RebornBrowserConfig.validHttpUrl(configuredUrl)
-            ?: return message(context, "主页网址无效，请在 LuckyTool 中重新设置")
-        // Returning from the native webpage leaves a safe explicit action, not an
-        // automatic redirect loop. The first activation is opened automatically.
-        return FrameLayout(context).apply {
-            setBackgroundColor(background(context))
-            addView(Button(context).apply {
-                text = "打开自定义主页"
-                isAllCaps = false
-                setOnClickListener { fragments[home]?.get()?.let { openNativeTab(it, url) } }
-            }, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+    private fun buildUrlHome(context: Context): View {
+        if (RebornBrowserConfig.validHttpUrl(configuredUrl) == null) {
+            return message(context, "主页网址无效，请在 LuckyTool 中重新设置")
         }
+        // A valid URL is navigation, never an interstitial requiring another tap.
+        // On history return, the native interactive anchor is restored instead.
+        // Only an explicit Home action authorizes another automatic redirect.
+        return FrameLayout(context).apply { setBackgroundColor(background(context)) }
     }
 
     private fun queueUrlHome(fragment: Any, home: Any, major: Any, view: View) {
         val url = RebornBrowserConfig.validHttpUrl(configuredUrl) ?: return
-        view.post {
+        val ticket = navigation.ticket(fragment)
+        view.postOnAnimation {
             try {
-                if (fragments[home]?.get() !== fragment) return@post
-                if (readFieldOfType(home, "com.heytap.browser.main.home.normal.a") !== major) return@post
-                val owner = ownerTab(fragment) ?: return@post
-                // Do not hijack another tab/page when an old lifecycle callback runs.
-                if (owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return@post
-                navigation.openOnce(fragment) { openNativeTab(fragment, url) }
+                if (fragments[home]?.get() !== fragment) return@postOnAnimation
+                if (readFieldOfType(home, "com.heytap.browser.main.home.normal.a") !== major) return@postOnAnimation
+                val owner = ownerTab(fragment) ?: return@postOnAnimation
+                // Check ownership and epoch again when executing, not when queued.
+                if (owner.javaClass.getMethod("isActive").invoke(owner) != true ||
+                    owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return@postOnAnimation
+                var attempted = false
+                val dispatched = navigation.openOnce(fragment, ticket) {
+                    attempted = true
+                    openNativeTab(fragment, url)
+                }
+                if (attempted && !dispatched && navigation.failedDispatch(fragment, ticket)) {
+                    view.requestLayout()
+                } else {
+                    recoverUnchangedHome(fragment, home, major, view, ticket)
+                }
             } catch (error: Exception) {
-                YLog.error("Reborn: native homepage activation skipped", error)
+                if (navigation.failedDispatch(fragment, ticket)) view.requestLayout()
+                YLog.error("Reborn: native homepage activation skipped; native fallback requested", error)
             }
         }
+    }
+
+    private fun recoverUnchangedHome(fragment: Any, home: Any, major: Any, view: View, ticket: Long) {
+        if (!navigation.needsRecovery(fragment, ticket) || pendingRecovery[fragment] == ticket) return
+        pendingRecovery[fragment] = ticket
+        view.postDelayed({
+            if (pendingRecovery[fragment] == ticket) pendingRecovery.remove(fragment)
+            try {
+                if (fragments[home]?.get() !== fragment ||
+                    readFieldOfType(home, "com.heytap.browser.main.home.normal.a") !== major) return@postDelayed
+                val owner = ownerTab(fragment) ?: return@postDelayed
+                if (owner.javaClass.getMethod("isActive").invoke(owner) != true ||
+                    owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return@postDelayed
+                if (navigation.recoverUndispatched(fragment, ticket)) {
+                    // Do not resubmit a permission-blocked native request, clear
+                    // history, or strand the user on an empty replacement.
+                    view.requestLayout()
+                    YLog.info("Reborn: homepage request did not leave Home; native fallback requested")
+                }
+            } catch (error: Exception) {
+                YLog.error("Reborn: homepage request recovery unavailable", error)
+            }
+        }, 2000L)
     }
 
     private fun buildShortcutHome(context: Context, home: Any): View {

@@ -159,7 +159,9 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
         } catch (error: Throwable) {
             YLog.error("Reborn: profile attachment hook mismatch", error)
         }
-        val infoClass = "com.platform.sdk.center.widget.HeyTapAccountInfoView".toClassOrNull()
+        // The inflated CustomSignInAccountInfoView inherits these setters (or
+        // calls super). Hook the declaring class and clean the actual subclass.
+        val infoClass = BrowserMineRules.ACCOUNT_INFO_BASE.toClassOrNull()
         listOf("setSignBtnText", "setShowSignButton").forEach { method ->
             try {
                 infoClass?.resolve()?.firstMethod {

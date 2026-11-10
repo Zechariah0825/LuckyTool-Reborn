@@ -36,6 +36,9 @@ class BrowserSearchEngines(
     @Volatile private var defaultSyncFinished = false
 
     override fun onHook() {
+        try {
+            loadHooker(BrowserSearchIcons(RebornBrowserConfig.availableSearchEngines(customName, customTemplate, customEntries)))
+        } catch (error: Throwable) { YLog.error("Reborn: search icons unavailable; routing remains unchanged", error) }
         val model = "com.heytap.browser.search.impl.engine.DefaultSearchEngines".toClassOrNull()
         if (model != null) {
             listOf("M", "Q", "d0", "e0", "g0", "k", "n").forEach { methodName ->
@@ -340,6 +343,8 @@ class BrowserSearchEngines(
                 )
                 val native = nativeClass.getDeclaredConstructor(Context::class.java, dataClass)
                     .apply { isAccessible = true }.newInstance(context, config)
+                runCatching { BrowserSearchIcons.seedNative(native, engine) }
+                    .onFailure { YLog.error("Reborn: icon unavailable for ${engine.id}; keeping search engine", it) }
                 wrapperClass.getDeclaredConstructor(Context::class.java, nativeClass)
                     .apply { isAccessible = true }.newInstance(context, native)
             } catch (error: Throwable) {

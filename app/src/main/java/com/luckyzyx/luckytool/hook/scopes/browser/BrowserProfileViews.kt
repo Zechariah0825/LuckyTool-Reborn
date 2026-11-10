@@ -12,21 +12,24 @@ internal object BrowserProfileViews {
 
     fun cleanAccountInfo(info: View) {
         if (!BrowserMineRules.isAccountInfo(info.javaClass.name) || !isInProfile(info)) return
+        // CustomSignInVipCard inflates CustomSignInAccountInfoView. Its two
+        // button fields are declared by HeyTapAccountInfoView, not the subclass.
+        val fieldOwner = generateSequence<Class<*>>(info.javaClass) { it.superclass }
+            .firstOrNull { it.name == BrowserMineRules.ACCOUNT_INFO_BASE } ?: return
         val reward = runCatching {
             val id = info.resources.getIdentifier("receive_reward", "string", "com.heytap.browser")
             if (id == 0) null else info.resources.getString(id)
         }.getOrNull()
         val candidates = listOf("mImageBtnSignIn", "mBtnSignIn").mapNotNull { fieldName ->
             runCatching {
-                info.javaClass.getDeclaredField(fieldName).let {
+                fieldOwner.getDeclaredField(fieldName).let {
                     it.isAccessible = true
                     it.get(info) as? View
                 }
             }.getOrNull()
-        } + listOf("button_login_sign", "nearx_btn_sign_in").mapNotNull { name ->
-            val id = info.resources.getIdentifier(name, "id", "com.heytap.browser")
-            if (id == 0) null else info.findViewById<View>(id)
         }
+        // The shipped APK obfuscates resource entry names. Use the verified SDK
+        // fields instead of guessed names, numeric IDs or arbitrary cash text.
         hideCashButtons(info, candidates.distinct(), reward)
     }
 
