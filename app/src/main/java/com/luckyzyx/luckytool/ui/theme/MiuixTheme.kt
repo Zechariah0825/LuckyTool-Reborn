@@ -4,8 +4,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.LocalContentColor as MaterialLocalContentColor
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -57,11 +55,7 @@ fun MiuixLuckyTheme(
 
     val resolvedKeyColor: Color? = when {
         appSettings.keyColor != 0 -> Color(appSettings.keyColor)
-        colorMode.isMonet -> if (darkTheme) {
-            dynamicDarkColorScheme(context).primary
-        } else {
-            dynamicLightColorScheme(context).primary
-        }
+        colorMode.isMonet -> systemAccentSeed(context, darkTheme)
 
         else -> null
     }

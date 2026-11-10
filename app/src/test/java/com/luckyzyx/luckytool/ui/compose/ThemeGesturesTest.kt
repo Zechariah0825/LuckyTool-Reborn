@@ -3,6 +3,9 @@ package com.luckyzyx.luckytool.ui.compose
 import android.app.Application
 import android.os.Bundle
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalDensity
@@ -176,8 +179,8 @@ class ThemeGesturesTest {
                                 ThemeScreen(onBack = {})
                             }
                         } else {
-                            androidx.compose.material3.Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) {
-                                ThemeScreen(onBack = {})
+                            androidx.compose.material3.Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
+                                Box(Modifier.padding(padding)) { ThemeScreen(onBack = {}) }
                             }
                         }
                     }

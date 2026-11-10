@@ -2,7 +2,6 @@ package com.luckyzyx.luckytool.hook.statusbar
 
 import android.content.Context
 import android.graphics.Typeface
-import android.os.Handler
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -24,8 +23,6 @@ import com.luckyzyx.luckytool.utils.safeOfNull
 import org.lsposed.lsparanoid.Obfuscate
 import java.util.Calendar
 import java.util.Date
-import java.util.Timer
-import java.util.TimerTask
 
 @Obfuscate
 class StatusBarClock : YukiBaseHooker() {
@@ -98,13 +95,11 @@ class StatusBarClock : YukiBaseHooker() {
                         if (clockName != "clock") return@after
                     }
 
-                    Timer().schedule(object : TimerTask() {
-                        override fun run() {
-                            Handler(clockView.context.mainLooper).post {
-                                firstMethod { name = "updateClock" }.of(clockView).invoke()
-                            }
-                        }
-                    }, 1000 - System.currentTimeMillis() % 1000, 1000)
+                    // Stop ticking when detached: the old Timer retained every rebuilt
+                    // SystemUI clock forever and read its Context from a worker thread.
+                    ViewSecondTicker(clockView) {
+                        firstMethod { name = "updateClock" }.of(clockView).invoke()
+                    }.start()
                 }
             }
             firstMethod { name = "getSmallTime"; returnType = CharSequence::class }.hook {

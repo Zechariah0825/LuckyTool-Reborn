@@ -10,10 +10,13 @@ import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import org.lsposed.lsparanoid.Obfuscate
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
+import com.highcapable.yukihookapi.hook.log.YLog
 
-/** Visual fallback for asynchronously rendered browser pages. Enabled only on request.
- * The data-layer bottom-tab hook is preferable; this handles re-rendered legacy layouts.
+/** DEX-verified MyProfile subtree cleanup plus a bottom-navigation visual fallback.
+ * Keep watching layout because the browser asynchronously restores its card visibility.
+ * Never infer a removable profile card from text geometry in unrelated pages.
  */
 @Obfuscate
 class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Boolean) : YukiBaseHooker() {
@@ -30,9 +33,24 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
                 if (activity.packageName != "com.heytap.browser") return@after
                 val root = activity.window?.decorView ?: return@after
                 if (!observed.containsKey(root)) {
-                    val listener = ViewTreeObserver.OnGlobalLayoutListener { clean(root) }
+                    // The WeakHashMap value must not strongly retain its own key.
+                    // Remove observers on detach so repeated windows do not leak Activities.
+                    val weakRoot = WeakReference(root)
+                    val listener = ViewTreeObserver.OnGlobalLayoutListener {
+                        weakRoot.get()?.let(::clean)
+                    }
                     root.viewTreeObserver.addOnGlobalLayoutListener(listener)
                     observed[root] = listener
+                    root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                        override fun onViewAttachedToWindow(v: View) = Unit
+                        override fun onViewDetachedFromWindow(v: View) {
+                            if (v.viewTreeObserver.isAlive) {
+                                v.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+                            }
+                            observed.remove(v)
+                            v.removeOnAttachStateChangeListener(this)
+                        }
+                    })
                 }
                 root.post { clean(root) }
             }
@@ -47,13 +65,16 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
             walk(root, 0, labels)
             if (hideBottom) removeBottomNav(root, labels)
             if (hideMine) {
+                val rewardLabel = runCatching {
+                    val id = root.resources.getIdentifier("receive_reward", "string", "com.heytap.browser")
+                    if (id != 0) root.resources.getString(id) else null
+                }.getOrNull()
                 labels.filter { it.visibility == View.VISIBLE }.forEach { tv ->
-                    when (tv.text?.toString()?.trim()) {
-                        "领现金" -> hideCashButton(tv, root)
-                        "我的小说" -> hideNovelCard(tv, root)
-                    }
+                    if (BrowserMineRules.isCashLabel(tv.text?.toString(), rewardLabel)) hideCashButton(tv)
                 }
             }
+        } catch (error: Exception) {
+            YLog.error("Reborn: browser view cleanup skipped", error)
         } finally {
             inLayout = false
         }
@@ -61,6 +82,10 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
 
     private fun walk(view: View, depth: Int, output: MutableList<TextView>) {
         if (depth > 35 || view.visibility != View.VISIBLE) return
+        if (hideMine && BrowserMineRules.isBookshelf(view.javaClass.name) && isInProfile(view)) {
+            view.visibility = View.GONE
+            return
+        }
         if (view is TextView) output.add(view)
         if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), depth + 1, output)
     }
@@ -114,22 +139,29 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
         return pos[1] - base[1] > root.height * .73f
     }
 
-    private fun hideCashButton(text: TextView, root: View) {
-        val maxWidth = (root.width * .5f).toInt()
-        val candidate = ancestors(text).firstOrNull {
-            it !== root && it.width in 1..maxWidth && it.height in 1..dp(text, 92) &&
-                (it.isClickable || it.background != null)
-        }
-        (candidate ?: text).visibility = View.GONE
-    }
+    private fun isInProfile(view: View): Boolean =
+        ancestors(view).any { BrowserMineRules.isProfile(it.javaClass.name) }
 
-    private fun hideNovelCard(text: TextView, root: View) {
-        // Remove the entire horizontally spanning card, not the heading alone.
-        val candidate = ancestors(text).firstOrNull {
-            it !== root && it.width > root.width * .72f &&
-                it.height in dp(text, 96)..dp(text, 460) && it.background != null
+    private fun hideCashButton(text: TextView) {
+        if (!isInProfile(text)) return
+        val card = ancestors(text).firstOrNull {
+            BrowserMineRules.isAccountCard(it.javaClass.name)
+        } ?: return
+        try {
+            val info = card.javaClass.getMethod("getAccountInfoView").invoke(card) as? View ?: return
+            fun button(name: String): View? {
+                val id = info.resources.getIdentifier(name, "id", "com.heytap.browser")
+                return if (id != 0) info.findViewById(id) else null
+            }
+            val rewardButton = button("button_login_sign") ?: button("nearx_btn_sign_in") ?: return
+            if (rewardButton.visibility != View.VISIBLE || !isDescendant(text, rewardButton)) return
+            // AcBaseView.hideSignInBtn only hides the sign/reward control. It keeps
+            // the avatar/account/VIP card. Match actual visible reward text so an
+            // unauthenticated "登录" control is never hidden by a cached reward title.
+            card.javaClass.getMethod("hideSignInBtn").invoke(card)
+        } catch (error: Exception) {
+            YLog.error("Reborn: cannot hide profile reward button", error)
         }
-        (candidate ?: text).visibility = View.GONE
     }
 
     private fun ancestors(view: View): Sequence<View> = generateSequence(view as View?) {

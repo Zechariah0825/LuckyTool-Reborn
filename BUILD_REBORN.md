@@ -26,6 +26,21 @@ Version codes are read without modifying `app/version.properties`. Optional over
 bash ./gradlew :app:assembleDebug -PrebornVersionCode=23304 -PrebornVersionName=1.3.5_reborn.3
 ```
 
+## Constrained-memory local validation
+
+The 2026-11-10 run passed with one Gradle worker and in-process Kotlin. On a constrained machine, run the stages separately so compiler/lint state does not accumulate alongside Robolectric forks:
+
+```sh
+COMMON=(--no-daemon --max-workers=1 \
+  -Pkotlin.compiler.execution.strategy=in-process \
+  '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8')
+bash ./gradlew "${COMMON[@]}" :app:assembleDebug
+bash ./gradlew "${COMMON[@]}" -I scripts/low-memory-tests.init.gradle :app:testDebugUnitTest
+bash ./gradlew "${COMMON[@]}" :app:lintDebug
+```
+
+The optional init script limits the test JVM to 1 GiB and restarts it every eight test classes; it does not omit or ignore tests. Keep the full lint outcome separate from compilation/test success. Machine-specific network/proxy configuration is not part of the source. Use the normal trusted repository setup for your environment.
+
 ## GitHub Actions
 
 The workflow `.github/workflows/build-reborn.yml` runs on pushes and pull requests to `main`, or manually through **Actions > Build LuckyTool Reborn APK > Run workflow**.
@@ -48,6 +63,8 @@ Custom release signing is optional through untracked `keystore/keystore.properti
 
 Compilation, unit tests, and lint do not establish Android 17 / ColorOS 17 runtime compatibility. Device tests must cover the actual ROM, LSPosed version, enabled scopes, reboot/recovery behavior, and individual hooks.
 
-## Recorded local result
+## Historical v0.3 local result
+
+For the current browser/Market implementation and results, see `VALIDATION_REBORN_4.md`. The following records the earlier base build.
 
 The modified project produced a debug APK locally. All 196 unit tests across 34 suites passed. Full lint failed with 414 errors, 559 warnings, and 8 informational findings. The six error-bearing files are unchanged from the supplied source archive; no blanket suppression or baseline was added. See `VALIDATION.md` for categories, commands, artifact hashes, and verification limits. These results do not imply a successful GitHub Actions run or a device test.

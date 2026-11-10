@@ -1,0 +1,11 @@
+// Optional portable test settings for constrained build machines.
+// Does not suppress, filter or ignore any test.
+gradle.projectsEvaluated {
+    allprojects {
+        tasks.withType(Test).configureEach {
+            maxHeapSize = '1024m'
+            maxParallelForks = 1
+            forkEvery = 8
+        }
+    }
+}

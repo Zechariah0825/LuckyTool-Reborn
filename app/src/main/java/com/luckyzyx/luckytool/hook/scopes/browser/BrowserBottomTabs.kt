@@ -23,15 +23,25 @@ class BrowserBottomTabs : YukiBaseHooker() {
             val klass = name.toClassOrNull() ?: return@forEach
             methods.forEach { method ->
                 try {
-                    klass.resolve().firstMethod { this.name = method }.hook {
+                    klass.resolve().firstMethod { this.name = method; parameters() }.hook {
                         after {
                             val original = result as? List<*> ?: return@after
-                            val validTypes = setOf(
-                                "com.heytap.browser.trait.tab.d",
-                                "com.heytap.browser.tab_bottom.BottomTabModel",
-                            )
-                            val filtered = RebornBrowserConfig.filterFiveBottomTabs(original) {
-                                it != null && it.javaClass.name in validTypes
+                            val filtered = BrowserBottomTabRules.filter(original) { item ->
+                                when {
+                                    // Default lists are Integers, not BottomTabModel objects.
+                                    item is Int -> item
+                                    item?.javaClass?.name == "com.heytap.browser.trait.tab.d" -> {
+                                        try {
+                                            // The supplied builds have different obfuscated getters.
+                                            val old = item.javaClass.methods.any {
+                                                it.name == "k" && it.parameterCount == 0 && it.returnType == Int::class.javaPrimitiveType
+                                            }
+                                            val native = item.javaClass.getMethod(if (old) "m" else "l").invoke(item) == 0
+                                            if (native) item.javaClass.getMethod(if (old) "k" else "j").invoke(item) as? Int else null
+                                        } catch (_: ReflectiveOperationException) { null }
+                                    }
+                                    else -> null
+                                }
                             } ?: return@after
                             result = ArrayList(filtered)
                         }

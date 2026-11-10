@@ -1,6 +1,6 @@
 # LuckyTool Reborn — OPPO Browser / App Market local source implementation
 
-Status date: 2026-11-09. **Source implementation only**. No GitHub Actions changes in this iteration.
+Historical status dated 2026-11-09, retained below. For the current 2026-11-10 implementation and actual build/test results, see [VALIDATION_REBORN_4.md](VALIDATION_REBORN_4.md) and [TARGET_APKS.md](TARGET_APKS.md). The embedded-WebView and positional-navigation descriptions below describe the older implementation, not the current revision. No GitHub Actions changes were made in either iteration.
 
 ## Target apps and evidence
 

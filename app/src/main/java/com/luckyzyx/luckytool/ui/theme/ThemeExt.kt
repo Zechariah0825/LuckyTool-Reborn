@@ -1,5 +1,7 @@
 package com.luckyzyx.luckytool.ui.theme
 
+import android.content.Context
+import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.material3.ColorScheme
@@ -11,6 +13,14 @@ import androidx.compose.ui.platform.LocalContext
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
+
+/** Android 11 has no system dynamic palette; use a neutral, deterministic seed. */
+internal fun systemAccentSeed(context: Context, isDark: Boolean): Color =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        (if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)).primary
+    } else {
+        Color(0xFF808080)
+    }
 
 /** 深色 OLED 纯黑背景。 */
 fun ColorScheme.amoledBackground(amoled: Boolean): ColorScheme =
@@ -50,7 +60,7 @@ fun rememberLuckyColorScheme(
 ): ColorScheme {
     val context = LocalContext.current
     val seed = if (seedColor == Color.Unspecified) {
-        (if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)).primary
+        systemAccentSeed(context, isDark)
     } else {
         seedColor
     }

@@ -30,9 +30,18 @@ class BrowserSearchEngines(
             "com.heytap.browser.search.impl.engine.DefaultSearchEngines".toClassOrNull()
         else null
         if (model != null) {
-            listOf("M", "d0", "e0", "g0", "k").forEach { methodName ->
+            listOf("M", "Q", "d0", "e0", "g0", "k", "n").forEach { methodName ->
                 try {
-                    model.resolve().firstMethod { name = methodName }.hook {
+                    val isBooleanList = methodName == "k" || methodName == "n"
+                    if (model.declaredMethods.none {
+                        it.name == methodName && List::class.java.isAssignableFrom(it.returnType) &&
+                            (if (isBooleanList) it.parameterTypes.contentEquals(arrayOf(Boolean::class.javaPrimitiveType))
+                            else it.parameterCount == 0)
+                    }) return@forEach
+                    model.resolve().firstMethod {
+                        name = methodName
+                        if (isBooleanList) parameters(Boolean::class) else parameters()
+                    }.hook {
                         after {
                             val list = result as? List<*> ?: return@after
                             if (list.isEmpty() || list.any {
@@ -52,9 +61,16 @@ class BrowserSearchEngines(
                     YLog.error("Reborn: search list hook mismatch: $methodName", error)
                 }
             }
-            listOf("r", "u").forEach { methodName ->
+            listOf("r", "u", "x").forEach { methodName ->
                 try {
-                    model.resolve().firstMethod { name = methodName }.hook {
+                    if (model.declaredMethods.none {
+                        it.name == methodName && it.parameterTypes.contentEquals(arrayOf(String::class.java)) &&
+                            it.returnType.name == "com.heytap.browser.api.search.engine.c"
+                    }) return@forEach
+                    model.resolve().firstMethod {
+                        name = methodName
+                        parameters(String::class)
+                    }.hook {
                         after {
                             val key = try { firstArg().get<String>() } catch (_: Throwable) { null }
                             if (!key.orEmpty().startsWith("reborn_")) return@after
@@ -71,15 +87,19 @@ class BrowserSearchEngines(
             }
         }
         // An explicitly selected Reborn engine must work even if the native picker
-        // has changed. The actual search URL builder is c.r(query) in this APK.
+        // has changed. Supplied DEX builds use c.r(query) or c.s(query).
         val route = RebornBrowserConfig.searchEngineById(
             selectedProvider, customName, customTemplate, customEntries
         )
             ?: return
         val engineClass = "com.heytap.browser.search.impl.engine.c".toClassOrNull() ?: return
         try {
+            val routeMethod = engineClass.declaredMethods.singleOrNull {
+                it.name in setOf("r", "s") && it.returnType == String::class.java &&
+                    it.parameterTypes.contentEquals(arrayOf(String::class.java))
+            } ?: return
             engineClass.resolve().firstMethod {
-                name = "r"
+                name = routeMethod.name
                 parameters(String::class)
             }.hook {
                 after {
@@ -103,17 +123,22 @@ class BrowserSearchEngines(
     } catch (_: Throwable) { null }
 
     private fun createModels(owner: Any): List<Any> {
-        val context = owner.javaClass.declaredFields.firstOrNull {
-            Context::class.java.isAssignableFrom(it.type)
-        }?.let { field -> field.isAccessible = true; field.get(owner) as? Context } ?: return emptyList()
+        val context = try {
+            owner.javaClass.declaredFields.firstOrNull {
+                Context::class.java.isAssignableFrom(it.type)
+            }?.let { field -> field.isAccessible = true; field.get(owner) as? Context }
+        } catch (error: Exception) {
+            YLog.error("Reborn: search model Context unavailable", error)
+            null
+        } ?: return emptyList()
         val engines = listOfNotNull(
             RebornBrowserConfig.searchEngine(RebornBrowserConfig.BING, "", ""),
             RebornBrowserConfig.searchEngine(RebornBrowserConfig.GOOGLE, "", ""),
             RebornBrowserConfig.searchEngine(RebornBrowserConfig.CUSTOM, customName, customTemplate),
         ) + RebornBrowserConfig.parseCustomSearchEngines(customEntries)
+        val loader = owner.javaClass.classLoader ?: return emptyList()
         return engines.mapNotNull { engine ->
             try {
-                val loader = owner.javaClass.classLoader
                 val dataClass = loader.loadClass("com.heytap.browser.api.search.engine.e")
                 val nativeClass = loader.loadClass("com.heytap.browser.search.impl.engine.k")
                 val wrapperClass = loader.loadClass("com.heytap.browser.search.impl.engine.c")

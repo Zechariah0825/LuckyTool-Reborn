@@ -20,6 +20,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,7 +72,10 @@ import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
 fun HomePage(activity: MainActivity, isCurrentPage: Boolean = true) {
     val context = LocalContext.current
     val settings = remember { PrefState.of(context, SettingsPrefs) }
-    val zh = remember(context) { isZh(context) }
+    val configuration = LocalConfiguration.current
+    val zh = remember(context, configuration) { isZh(context) }
+    val frameworkVersionLabel = stringResource(R.string.framework_version)
+    val deviceInfoCopiedMessage = stringResource(R.string.home_device_info_copied)
     // 隐藏功能可在运行期被「关于作者」长按反复切换：必须走可观察 Flow，
     // 不能用 remember 快照（否则开关关掉后 isDev 仍停留在组合时的旧值）
     val isDev by settings.booleanFlow("hidden_function", false).collectAsStateWithLifecycle()
@@ -132,7 +137,7 @@ fun HomePage(activity: MainActivity, isCurrentPage: Boolean = true) {
             }
             rootVersion = versions.first
             frameworkVersion = versions.second.takeUnless { "null" in it }
-                ?: "${context.getString(R.string.framework_version)} —"
+                ?: "$frameworkVersionLabel —"
         }
         GlobalFuncService.get(activity) { controller ->
             deviceInfoJob?.cancel()
@@ -181,7 +186,7 @@ fun HomePage(activity: MainActivity, isCurrentPage: Boolean = true) {
         onStatusLongClick = statusCardLongClick,
         onCopyDeviceInfo = {
             context.copyStr(DeviceUtils.getOTACOnfigs())
-            context.showToast(context.getString(R.string.home_device_info_copied))
+            context.showToast(deviceInfoCopiedMessage)
         },
         onDonate = {
             context.openUrl(
@@ -301,7 +306,7 @@ fun HomePage(activity: MainActivity, isCurrentPage: Boolean = true) {
         RestartMenuUtils.OptimizeDexDialog(
             context,
             RestartMenuUtils.buildScopeMaps(
-                context, context.resources.getStringArray(R.array.xposed_scope)
+                context, stringArrayResource(R.array.xposed_scope)
             ),
             confirmFirst = true,
         ) { showOptimizeDex = false }

@@ -1,7 +1,9 @@
 package com.luckyzyx.luckytool.hook.scopes.browser
 
 import java.net.URI
+import java.net.URISyntaxException
 import java.net.URLEncoder
+import java.security.MessageDigest
 
 /** Settings shared by LuckyTool's UI and the browser process. No Android dependencies. */
 object RebornBrowserConfig {
@@ -41,9 +43,13 @@ object RebornBrowserConfig {
         return try {
             val uri = URI(url)
             if (uri.scheme?.lowercase() !in setOf("https", "http") || uri.host.isNullOrBlank() ||
-                uri.rawUserInfo != null || uri.fragment != null || uri.host!!.length > 253
+                uri.rawUserInfo != null || uri.host!!.length > 253 ||
+                uri.port !in -1..65535
             ) null else url
-        } catch (_: IllegalArgumentException) {
+        } catch (_: URISyntaxException) {
+            // java.net.URI reports malformed escapes/brackets with a checked
+            // URISyntaxException, not IllegalArgumentException. Invalid saved
+            // preferences must never crash either the settings or host process.
             null
         }
     }
@@ -60,8 +66,37 @@ object RebornBrowserConfig {
 
     fun validSearchTemplate(template: String): String? {
         if (template.countPercentS() != 1) return null
-        val probe = template.replace("%s", "test")
-        return if (validHttpUrl(probe) != null) template.trim() else null
+        val normalized = template.trim()
+        val probe = normalized.replace("%s", "test")
+        if (validHttpUrl(probe) == null) return null
+        val uri = URI(probe)
+        // Only the path/query may contain the query placeholder. Never allow
+        // search text to alter the destination host, userinfo, port or fragment.
+        val authorityEnd = normalized.indexOf("://") + 3 + uri.rawAuthority.length
+        val placeholder = normalized.indexOf("%s")
+        val fragmentStart = normalized.indexOf('#')
+        if (placeholder < authorityEnd || (fragmentStart >= 0 && placeholder > fragmentStart)) return null
+        return normalized
+    }
+
+    /** User-facing validation before saving. Runtime parsing still tolerates older bad entries. */
+    fun entriesError(raw: String, search: Boolean): String? {
+        val lines = raw.lines().mapIndexedNotNull { index, line ->
+            line.takeIf { it.isNotBlank() }?.let { index + 1 to it }
+        }
+        if (lines.size > 24) return "最多可保存 24 条，请删除多余条目"
+        for ((number, line) in lines) {
+            val divider = line.indexOf('|')
+            if (divider <= 0) return "第 ${number} 行格式错误：名称 | https://网址"
+            val title = line.substring(0, divider).trim()
+            if (title.isEmpty() || title.length > 40) return "第 ${number} 行名称须为 1–40 个字符"
+            val url = line.substring(divider + 1).trim()
+            if (search && validSearchTemplate(url) == null) {
+                return "第 ${number} 行搜索地址无效，请在路径或查询参数中填写一个 %s"
+            }
+            if (!search && validHttpUrl(url) == null) return "第 ${number} 行网址无效，请填写完整 http/https 网址"
+        }
+        return null
     }
 
     private fun String.countPercentS(): Int = Regex("%s").findAll(this).count()
@@ -83,11 +118,20 @@ object RebornBrowserConfig {
             val title = line.substring(0, separator).trim()
             val template = validSearchTemplate(line.substring(separator + 1).trim()) ?: return@mapNotNull null
             if (title.isEmpty() || title.length > 40) return@mapNotNull null
-            SearchEngine("custom_" + template.hashCode().toUInt().toString(16), title, template)
+            SearchEngine(customEngineId(template), title, template)
         }.distinctBy { it.urlTemplate }.take(24).toList()
 
-    fun searchEngineById(id: String, name: String, template: String, entries: String): SearchEngine? =
-        searchEngine(id, name, template) ?: parseCustomSearchEngines(entries).firstOrNull { it.id == id }
+    private fun customEngineId(template: String): String = "custom_sha256_" +
+        MessageDigest.getInstance("SHA-256").digest(template.toByteArray(Charsets.UTF_8))
+            .take(16).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+    fun searchEngineById(id: String, name: String, template: String, entries: String): SearchEngine? {
+        searchEngine(id, name, template)?.let { return it }
+        val engines = parseCustomSearchEngines(entries)
+        return engines.firstOrNull { it.id == id }
+            // Preserve selections saved by the previous development version.
+            ?: engines.firstOrNull { "custom_" + it.urlTemplate.hashCode().toUInt().toString(16) == id }
+    }
 
     fun searchUrl(engine: SearchEngine, query: String): String =
         engine.urlTemplate.replace("%s", URLEncoder.encode(query, "UTF-8"))

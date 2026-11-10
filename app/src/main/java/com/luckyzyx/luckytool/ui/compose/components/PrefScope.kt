@@ -576,10 +576,12 @@ class PrefScopeBuilder internal constructor(
         enabled: Boolean = true,
         notify: Boolean = false,
         maxLines: Int = 1,
+        validate: ((String) -> String?)? = null,
         onChange: ((String) -> Unit)? = null,
     ) = emit(key, key, title, summary) { slot ->
         val current by state.stringFlow(key, default).collectAsStateWithLifecycle()
         var showDialog by remember { mutableStateOf(false) }
+        var validationError by remember { mutableStateOf<String?>(null) }
         if (LocalUiMode.current == UiMode.Miuix) {
             // 编辑值镜像：MiuixPrefTextDialog 的 onConfirm 无参，编辑值经 onValueChange 实时回抛
             var pendingText by remember { mutableStateOf(current) }
@@ -587,6 +589,7 @@ class PrefScopeBuilder internal constructor(
                 title = title,
                 summary = current.ifBlank { summary ?: "" },
                 onClick = {
+                    validationError = null
                     pendingText = current
                     showDialog = true
                 },
@@ -596,15 +599,18 @@ class PrefScopeBuilder internal constructor(
                 show = showDialog,
                 title = title,
                 value = current,
-                onValueChange = { pendingText = it },
+                onValueChange = { pendingText = it; validationError = null },
                 onConfirm = {
-                    showDialog = false
-                    state.set(key, pendingText)
-                    if (notify) sendValue(key, pendingText)
-                    onChange?.invoke(pendingText)
+                    validationError = validate?.invoke(pendingText)
+                    if (validationError == null) {
+                        showDialog = false
+                        state.set(key, pendingText)
+                        if (notify) sendValue(key, pendingText)
+                        onChange?.invoke(pendingText)
+                    }
                 },
                 onDismiss = { showDialog = false },
-                summary = dialogMessage,
+                summary = validationError ?: dialogMessage,
                 placeholder = hint,
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 maxLines = maxLines,
@@ -612,7 +618,7 @@ class PrefScopeBuilder internal constructor(
         } else {
             Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 MaterialListItem(
-                    onClick = { showDialog = true },
+                    onClick = { validationError = null; showDialog = true },
                     enabled = enabled,
                     colors = itemColors(slot),
                     headlineContent = { Text(title) },
@@ -644,7 +650,9 @@ class PrefScopeBuilder internal constructor(
                             }
                             OutlinedTextField(
                                 value = text,
-                                onValueChange = { text = it },
+                                onValueChange = { text = it; validationError = null },
+                                isError = validationError != null,
+                                supportingText = validationError?.let { error -> { Text(error) } },
                                 placeholder = hint?.let { { Text(it) } },
                                 singleLine = maxLines == 1,
                                 maxLines = maxLines,
@@ -656,10 +664,13 @@ class PrefScopeBuilder internal constructor(
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                showDialog = false
-                                state.set(key, text)
-                                if (notify) sendValue(key, text)
-                                onChange?.invoke(text)
+                                validationError = validate?.invoke(text)
+                                if (validationError == null) {
+                                    showDialog = false
+                                    state.set(key, text)
+                                    if (notify) sendValue(key, text)
+                                    onChange?.invoke(text)
+                                }
                             },
                         ) { Text(stringResource(android.R.string.ok)) }
                     },

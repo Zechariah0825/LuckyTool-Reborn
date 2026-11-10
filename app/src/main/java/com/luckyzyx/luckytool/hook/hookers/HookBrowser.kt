@@ -51,39 +51,52 @@ object HookBrowser : YukiBaseHooker() {
                 ))
             } catch (t: Throwable) { YLog.error("Reborn: BrowserSearchEngines failed", t) }
         }
-        DexkitUtils.create(appInfo.sourceDir) { dexKitBridge ->
-            //移除下载对话框广告
-            if (preferences(ModulePrefs).getBoolean("remove_ads_from_download_dialog", false)) {
-                try {
-                    loadHooker(RemoveAdsFromDownloadDialog(dexKitBridge))
-                } catch (t: Throwable) {
-                    YLog.error("Reborn: RemoveAdsFromDownloadDialog registration failed", t)
+        // Native Reborn settings do not need a DEX scan. Avoid parsing the whole
+        // APK when every legacy DexKit feature is disabled.
+        val legacyEnabled = listOf(
+            "remove_ads_from_download_dialog",
+            "remove_ads_at_download_page_bottom",
+            "remove_browser_window_limit_number",
+            "remove_browser_search_bar_app_promotion",
+        ).any { preferences(ModulePrefs).getBoolean(it, false) }
+        if (!legacyEnabled) return
+        try {
+            DexkitUtils.create(appInfo.sourceDir) { dexKitBridge ->
+                //移除下载对话框广告
+                if (preferences(ModulePrefs).getBoolean("remove_ads_from_download_dialog", false)) {
+                    try {
+                        loadHooker(RemoveAdsFromDownloadDialog(dexKitBridge))
+                    } catch (t: Throwable) {
+                        YLog.error("Reborn: RemoveAdsFromDownloadDialog registration failed", t)
+                    }
+                }
+                //移除下载页面底部广告
+                if (preferences(ModulePrefs).getBoolean("remove_ads_at_download_page_bottom", false)) {
+                    try {
+                        loadHooker(RemoveAdsAtDownloadPageBottom(dexKitBridge))
+                    } catch (t: Throwable) {
+                        YLog.error("Reborn: RemoveAdsAtDownloadPageBottom registration failed", t)
+                    }
+                }
+                //移除浏览器窗口数量限制
+                if (preferences(ModulePrefs).getBoolean("remove_browser_window_limit_number", false)) {
+                    try {
+                        loadHooker(RemoveBrowserWindowLimitNumber(dexKitBridge))
+                    } catch (t: Throwable) {
+                        YLog.error("Reborn: RemoveBrowserWindowLimitNumber registration failed", t)
+                    }
+                }
+                //移除浏览器搜索框App推广
+                if (preferences(ModulePrefs).getBoolean("remove_browser_search_bar_app_promotion", false)) {
+                    try {
+                        loadHooker(RemoveBrowserSearchBarAppPromotion(dexKitBridge))
+                    } catch (t: Throwable) {
+                        YLog.error("Reborn: RemoveBrowserSearchBarAppPromotion registration failed", t)
+                    }
                 }
             }
-            //移除下载页面底部广告
-            if (preferences(ModulePrefs).getBoolean("remove_ads_at_download_page_bottom", false)) {
-                try {
-                    loadHooker(RemoveAdsAtDownloadPageBottom(dexKitBridge))
-                } catch (t: Throwable) {
-                    YLog.error("Reborn: RemoveAdsAtDownloadPageBottom registration failed", t)
-                }
-            }
-            //移除浏览器窗口数量限制
-            if (preferences(ModulePrefs).getBoolean("remove_browser_window_limit_number", false)) {
-                try {
-                    loadHooker(RemoveBrowserWindowLimitNumber(dexKitBridge))
-                } catch (t: Throwable) {
-                    YLog.error("Reborn: RemoveBrowserWindowLimitNumber registration failed", t)
-                }
-            }
-            //移除浏览器搜索框App推广
-            if (preferences(ModulePrefs).getBoolean("remove_browser_search_bar_app_promotion", false)) {
-                try {
-                    loadHooker(RemoveBrowserSearchBarAppPromotion(dexKitBridge))
-                } catch (t: Throwable) {
-                    YLog.error("Reborn: RemoveBrowserSearchBarAppPromotion registration failed", t)
-                }
-            }
+        } catch (error: Throwable) {
+            YLog.error("Reborn: Browser DexKit initialization failed; native hooks remain installed", error)
         }
 //        //移除天气页面广告
 //        if (preferences(ModulePrefs).getBoolean("remove_ads_from_weather_page", false)) {
