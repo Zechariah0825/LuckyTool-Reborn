@@ -38,7 +38,7 @@ class HookDiagnosticUiTest {
     }
     @Test fun mixedBuildModuleSummaryCountsOnlyCompatibleReports() {
         val p = ProcessObservation("app", "app", "session", "build", emptyList())
-        val text = HookDiagnosticUi("build", listOf(p, p.copy(build = "old"))).moduleSummary
+        val text = HookDiagnosticUi("build", listOf(p, p.copy(build = "old", processName = "app:worker"))).moduleSummary
         assertTrue(text.contains("2 个进程回报")); assertTrue(text.contains("1 个匹配当前模块"))
         assertTrue(text.contains("均不代表最终界面效果"))
     }
@@ -70,4 +70,15 @@ class HookDiagnosticUiTest {
         assertEquals(1, b.entries.size)
         assertEquals(1, b.snapshotIndex().size)
     }
+    @Test fun sharedProcessAliasesCountAsOneProcess() {
+        val p = ProcessObservation("app", "shared.process", "session", "build", emptyList())
+        val text = HookDiagnosticUi("build", listOf(p, p.copy(packageName = "other.app"))).moduleSummary
+        assertTrue(text.contains("1 个进程回报")); assertTrue(text.contains("1 个匹配当前模块"))
+    }
+    @Test fun sharedProcessAliasWithMixedBuildCannotCountAsCurrent() {
+        val p = ProcessObservation("app", "shared.process", "session", "build", emptyList())
+        val text = HookDiagnosticUi("build", listOf(p, p.copy(packageName = "other.app", build = "old"))).moduleSummary
+        assertTrue(text.contains("1 个进程回报")); assertTrue(text.contains("0 个匹配当前模块"))
+    }
+
 }

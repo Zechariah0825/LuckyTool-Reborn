@@ -25,8 +25,9 @@ internal data class HookDiagnosticUi(val build: String, val reports: List<Proces
     val moduleSummary: String get() = if (reports.isEmpty()) {
         "未知：未收到目标进程回报。请确认 LSPosed 作用域、重启并打开目标应用后返回。未回报不等于未生效。"
     } else {
-        val current = reports.count { it.build == build }
-        "最近 15 秒内收到 ${reports.size} 个进程回报，其中 $current 个匹配当前模块。" +
+        val sessions = reports.groupBy { it.processName to it.session }.values
+        val current = sessions.count { snapshots -> snapshots.all { it.build == build } }
+        "最近 15 秒内收到 ${sessions.size} 个进程回报，其中 $current 个匹配当前模块。" +
             "加载、注册、触发均不代表最终界面效果；未接入检测的项目会明确显示未知。"
     }
     fun summary(key: String, value: Any, original: String?): String = listOfNotNull(

@@ -25,7 +25,7 @@ The existing Yuki data channel targets the host/module packages. A random 128-bi
 
 Settings and loaded APK paths are typed SHA-256 fingerprints. No raw URLs, searches, browsing data or exception messages cross the channel. Build identity includes version and install path; unusual in-place replacement is not a cryptographic code-identity guarantee.
 
-Targets store bounded observations in memory only (128 features). No disk/Binder/network work runs in feature callbacks. The app polls only while its settings page is STARTED, every three seconds. Replies are rate limited, retain at most 16 processes per package, and replace restarted-session counters.
+Targets store bounded observations in memory only (128 features). No disk/Binder/network work runs in feature callbacks. The app polls only while its settings page is STARTED, every three seconds. Replies are rate limited, retain at most 16 processes per package, and replace restarted-session counters. Shared-UID processes register each loaded package namespace independently and reuse a process session identity. Duplicate cumulative snapshots from those namespaces are merged by per-counter maximum, so one process is not counted twice; configuration and version mismatches are checked before merging.
 
 ## Validation required
 

@@ -38,13 +38,24 @@ object HookObservation {
         val compatible = reports.filter { it.build == expectedBuild }
         if (compatible.isEmpty() || reports.any { r -> r.build != expectedBuild && r.features.any { it.key == key } })
             return FeatureStatus(ObservationState.BUILD_CHANGED, "目标进程仍为其他模块版本，请重启作用域后检测")
-        val entries = compatible.flatMap { it.features.filter { f -> f.key == key } }
+        // Shared-UID package namespaces report the same in-process store. Check all
+        // versions/configurations first, then merge cumulative snapshots by session.
+        val entriesBySession = compatible.groupBy { it.processName to it.session }.values.map { processReports ->
+            processReports.flatMap { it.features.filter { f -> f.key == key } }
+        }.filter { it.isNotEmpty() }
+        val entries = entriesBySession.flatten()
         if (entries.isEmpty()) return FeatureStatus(ObservationState.PROCESS_LOADED,
             if (key in instrumentedKeys) "模块已加载；此项未加载或尚无回报，可能需重启作用域"
             else "模块已加载；此项尚未接入检测，效果未知")
-        val matching = entries.filter { it.config == config(value) }
-        if (matching.size != entries.size) return FeatureStatus(ObservationState.CONFIG_CHANGED,
+        if (entries.any { it.config != config(value) }) return FeatureStatus(ObservationState.CONFIG_CHANGED,
             "目标进程配置与当前不同，请重启作用域后检测")
+        val matching = entriesBySession.map { snapshots ->
+            snapshots.first().copy(
+                registered = snapshots.maxOf { it.registered }, triggered = snapshots.maxOf { it.triggered },
+                changed = snapshots.maxOf { it.changed }, failures = snapshots.maxOf { it.failures },
+                failure = snapshots.maxBy { it.failures }.failure, tracksChanges = snapshots.all { it.tracksChanges },
+            )
+        }
         val failures = matching.sumOf { it.failures.toLong() }
         if (failures > 0) return FeatureStatus(ObservationState.FAILED,
             "捕获失败记录 $failures 条（${matching.first { it.failures > 0 }.failure}）；其他路径可能仍工作")

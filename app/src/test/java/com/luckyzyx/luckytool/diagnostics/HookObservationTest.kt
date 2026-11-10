@@ -67,11 +67,11 @@ class HookObservationTest {
     }
     @Test fun aggregateCountersUseLongRatherThanOverflow() {
         val p = process(listOf(entry().copy(triggered = Int.MAX_VALUE)))
-        assertTrue(status(p, p).detail.contains("4294967294"))
+        assertTrue(status(p, p.copy(processName = "app.test:worker")).detail.contains("4294967294"))
         val f = process(listOf(entry().copy(failures = Int.MAX_VALUE, failure = "Error")))
-        assertTrue(status(f, f).detail.contains("4294967294"))
+        assertTrue(status(f, f.copy(processName = "app.test:worker")).detail.contains("4294967294"))
         val r = process(listOf(entry().copy(registered = Int.MAX_VALUE)))
-        assertTrue(status(r, r).detail.contains("4294967294"))
+        assertTrue(status(r, r.copy(processName = "app.test:worker")).detail.contains("4294967294"))
     }
     @Test fun ordinaryCallbacksNeverClaimZeroMutations() {
         val s = status(process(listOf(entry().copy(triggered = 1))))
@@ -158,4 +158,35 @@ class HookObservationTest {
     @Test fun installedHostWithoutAnyReportRemainsUnknown() {
         assertEquals(ObservationState.UNKNOWN, hostStatus(emptyList()).state)
     }
+    @Test fun sharedProcessAliasesDoNotDoubleCountTriggersOrChanges() {
+        val p = process(listOf(entry().copy(triggered = 5, changed = 2, tracksChanges = true)))
+        val alias = p.copy(packageName = "shared.app", features = listOf(entry().copy(triggered = 8, changed = 3, tracksChanges = true)))
+        for (reports in listOf(listOf(p, alias), listOf(alias, p))) {
+            val text = status(*reports.toTypedArray()).detail
+            assertTrue(text.contains("触发 8 次")); assertTrue(text.contains("执行修改 3 次"))
+        }
+    }
+    @Test fun sharedProcessAliasesDoNotDoubleCountFailuresOrRegistrations() {
+        val f = process(listOf(entry().copy(failures = 2, failure = "LookupError")))
+        val failure = status(f, f.copy(packageName = "shared.app")).detail
+        assertTrue(failure.contains("失败记录 2 条"))
+        val r = process(listOf(entry().copy(registered = 3)))
+        assertTrue(status(r, r.copy(packageName = "shared.app")).detail.contains("已注册 3 个"))
+    }
+    @Test fun sameProcessNameWithDifferentSessionsRemainsSeparateEvidence() {
+        val p = process(listOf(entry().copy(triggered = 2)))
+        assertTrue(status(p, p.copy(session = "b".repeat(32))).detail.contains("进入 4 次"))
+    }
+    @Test fun sharedProcessAliasCannotHideConfigMismatch() {
+        val p = process(listOf(entry().copy(triggered = 4)))
+        val alias = p.copy(packageName = "shared.app", features = listOf(entry(false)))
+        assertEquals(ObservationState.CONFIG_CHANGED, status(p, alias).state)
+    }
+    @Test fun sharedProcessAliasCannotHideHostMismatch() {
+        val p = hitHost()
+        val alias = p.copy(packageName = "shared.app", hostBuild = oldHost)
+        assertEquals(ObservationState.HOST_CHANGED,
+            hostStatus(listOf(p, alias), hosts = mapOf("app.test" to currentHost, "shared.app" to currentHost)).state)
+    }
+
 }
