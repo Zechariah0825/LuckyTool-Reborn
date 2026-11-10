@@ -115,15 +115,47 @@ object OplusBrowserPage {
         val savedProvider = state.getString(C.SEARCH_PROVIDER, C.ORIGINAL).orEmpty()
         val savedEngine = C.searchEngineById(savedProvider, "", "", customEntries)
         list(
+            key = C.SEARCH_BAR_MODE,
+            title = "搜索结果顶部引擎切换栏",
+            entries = arrayOf("保留浏览器原始切换栏", "隐藏切换栏", "自选显示的搜索引擎"),
+            entryValues = arrayOf(C.ORIGINAL, C.SEARCH_BAR_HIDDEN, C.SEARCH_BAR_CUSTOM),
+            default = C.ORIGINAL,
+            summary = "自选模式始终保留浏览器当前默认引擎；其他引擎可选。隐藏模式隐藏整栏；更改后重启浏览器",
+            notify = true,
+        )
+        (listOf(C.SearchEngine(C.BING, "Bing", ""), C.SearchEngine(C.GOOGLE, "Google", "")) + customEngines).forEach { engine ->
+            switch(
+                key = C.searchBarEngineKey(engine.id),
+                title = "切换栏显示 ${engine.label}",
+                summary = "仅自选模式；此项若为浏览器当前默认则仍保留；仅一个引擎时栏自动隐藏",
+                default = true,
+                notify = true,
+            )
+        }
+        C.nativeSearchBarChoices.forEach { (id, label) ->
+            switch(
+                key = C.searchBarEngineKey(id),
+                title = "切换栏显示 $label（原生）",
+                summary = "仅自选模式；若此项是浏览器默认引擎则固定保留；未提供时不添加",
+                default = false,
+                notify = true,
+            )
+        }
+        list(
             key = C.SEARCH_PROVIDER,
-            title = "默认搜索引擎",
+            title = "应用默认搜索引擎（一次性）",
             entries = (listOf("跟随浏览器设置（含新增引擎）", "Bing", "Google") + customEngines.map { it.label }).toTypedArray(),
             entryValues = (listOf(C.ORIGINAL, C.BING, C.GOOGLE) + customEngines.map {
                 // Keep an old saved hash ID visibly selected until the user changes it.
                 if (savedProvider.startsWith("custom_") && savedEngine?.id == it.id) savedProvider else it.id
             }).toTypedArray(),
             default = C.ORIGINAL,
-            summary = "此处指定的引擎优先；跟随模式使用浏览器原生列表中选定的引擎",
+            summary = "此处显示上次请求，不代表浏览器当前选择。选定并重启后仅同步一次；之后可在 OPPO 浏览器设置中自由更改并保留",
+            onChange = {
+                // A fresh request survives ORIGINAL → same engine, even if the
+                // browser was not opened between those two module changes.
+                state.set(C.SEARCH_PROVIDER_REVISION, java.util.UUID.randomUUID().toString())
+            },
             notify = true,
         )
         editText(
@@ -138,6 +170,7 @@ object OplusBrowserPage {
                 val current = state.getString(C.SEARCH_PROVIDER, C.ORIGINAL).orEmpty()
                 if (current.startsWith("custom_") && C.searchEngineById(current, "", "", value) == null) {
                     state.set(C.SEARCH_PROVIDER, C.ORIGINAL)
+                    state.set(C.SEARCH_PROVIDER_REVISION, java.util.UUID.randomUUID().toString())
                 }
             },
             notify = true,

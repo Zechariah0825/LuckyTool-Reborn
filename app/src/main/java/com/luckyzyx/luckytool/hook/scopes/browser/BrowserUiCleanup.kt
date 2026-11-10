@@ -8,6 +8,7 @@ import android.widget.TextView
 import android.widget.LinearLayout
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.extension.kavaref.hook
+import com.highcapable.yukihookapi.extension.kavaref.toClassOrNull
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import org.lsposed.lsparanoid.Obfuscate
 import java.lang.ref.WeakReference
@@ -24,6 +25,7 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
     private var inLayout = false
 
     override fun onHook() {
+        if (hideMine) hookNativeProfile()
         Activity::class.resolve().firstMethod {
             name = "onWindowFocusChanged"
             parameters(Boolean::class)
@@ -64,15 +66,7 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
             val labels = ArrayList<TextView>()
             walk(root, 0, labels)
             if (hideBottom) removeBottomNav(root, labels)
-            if (hideMine) {
-                val rewardLabel = runCatching {
-                    val id = root.resources.getIdentifier("receive_reward", "string", "com.heytap.browser")
-                    if (id != 0) root.resources.getString(id) else null
-                }.getOrNull()
-                labels.filter { it.visibility == View.VISIBLE }.forEach { tv ->
-                    if (BrowserMineRules.isCashLabel(tv.text?.toString(), rewardLabel)) hideCashButton(tv)
-                }
-            }
+
         } catch (error: Exception) {
             YLog.error("Reborn: browser view cleanup skipped", error)
         } finally {
@@ -85,6 +79,9 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
         if (hideMine && BrowserMineRules.isBookshelf(view.javaClass.name) && isInProfile(view)) {
             view.visibility = View.GONE
             return
+        }
+        if (hideMine && BrowserMineRules.isAccountInfo(view.javaClass.name)) {
+            BrowserProfileViews.cleanAccountInfo(view)
         }
         if (view is TextView) output.add(view)
         if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), depth + 1, output)
@@ -142,26 +139,60 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
     private fun isInProfile(view: View): Boolean =
         ancestors(view).any { BrowserMineRules.isProfile(it.javaClass.name) }
 
-    private fun hideCashButton(text: TextView) {
-        if (!isInProfile(text)) return
-        val card = ancestors(text).firstOrNull {
-            BrowserMineRules.isAccountCard(it.javaClass.name)
-        } ?: return
+    /** Both supplied APKs have these named SDK setters and profile attachment.
+     * Hooking the actual views also catches asynchronous account refreshes when
+     * the browser Activity overrides onWindowFocusChanged without calling super.
+     */
+    private fun hookNativeProfile() {
+        val profileClass = "com.heytap.browser.usercenter.my.MyProfileView".toClassOrNull()
         try {
-            val info = card.javaClass.getMethod("getAccountInfoView").invoke(card) as? View ?: return
-            fun button(name: String): View? {
-                val id = info.resources.getIdentifier(name, "id", "com.heytap.browser")
-                return if (id != 0) info.findViewById(id) else null
+            profileClass?.resolve()?.firstMethod {
+                name = "onAttachedToWindow"
+                parameters()
+            }?.hook {
+                after {
+                    val profile = instance as? View ?: return@after
+                    BrowserProfileViews.cleanProfile(profile)
+                    observeProfile(profile)
+                }
             }
-            val rewardButton = button("button_login_sign") ?: button("nearx_btn_sign_in") ?: return
-            if (rewardButton.visibility != View.VISIBLE || !isDescendant(text, rewardButton)) return
-            // AcBaseView.hideSignInBtn only hides the sign/reward control. It keeps
-            // the avatar/account/VIP card. Match actual visible reward text so an
-            // unauthenticated "登录" control is never hidden by a cached reward title.
-            card.javaClass.getMethod("hideSignInBtn").invoke(card)
-        } catch (error: Exception) {
-            YLog.error("Reborn: cannot hide profile reward button", error)
+        } catch (error: Throwable) {
+            YLog.error("Reborn: profile attachment hook mismatch", error)
         }
+        val infoClass = "com.platform.sdk.center.widget.HeyTapAccountInfoView".toClassOrNull()
+        listOf("setSignBtnText", "setShowSignButton").forEach { method ->
+            try {
+                infoClass?.resolve()?.firstMethod {
+                    name = method
+                    if (method == "setSignBtnText") parameters(String::class, Boolean::class)
+                    else parameters(Boolean::class)
+                }?.hook {
+                    after {
+                        (instance as? View)?.let(BrowserProfileViews::cleanAccountInfo)
+                    }
+                }
+            } catch (error: Throwable) {
+                YLog.error("Reborn: profile cash setter hook mismatch: $method", error)
+            }
+        }
+    }
+
+    private fun observeProfile(profile: View) {
+        if (observed.containsKey(profile)) return
+        val weak = WeakReference(profile)
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            weak.get()?.let(BrowserProfileViews::cleanProfile)
+        }
+        observed[profile] = listener
+        profile.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        profile.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = Unit
+            override fun onViewDetachedFromWindow(v: View) {
+                if (v.viewTreeObserver.isAlive) v.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+                observed.remove(v)
+                v.removeOnAttachStateChangeListener(this)
+            }
+        })
     }
 
     private fun ancestors(view: View): Sequence<View> = generateSequence(view as View?) {

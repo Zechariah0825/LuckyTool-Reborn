@@ -40,14 +40,22 @@ object HookBrowser : YukiBaseHooker() {
         }
         val searchProvider = preferences(ModulePrefs).getString(C.SEARCH_PROVIDER, C.ORIGINAL)
         val extendSearch = preferences(ModulePrefs).getBoolean(C.SEARCH_EXTEND, false)
-        if (extendSearch || searchProvider != C.ORIGINAL) {
+        val searchBarMode = preferences(ModulePrefs).getString(C.SEARCH_BAR_MODE, C.ORIGINAL)
+        val customName = preferences(ModulePrefs).getString(C.SEARCH_CUSTOM_NAME, "自定义搜索")
+        val customUrl = preferences(ModulePrefs).getString(C.SEARCH_CUSTOM_URL, "")
+        val customEntries = preferences(ModulePrefs).getString(C.SEARCH_CUSTOM_ENGINES, "")
+        val barEngineIds = C.availableSearchEngines(customName, customUrl, customEntries).filter {
+            preferences(ModulePrefs).getBoolean(C.searchBarEngineKey(it.id), true)
+        }.map { it.id }.toSet() + C.nativeSearchBarChoices.mapNotNull { (id, _) ->
+            id.takeIf { preferences(ModulePrefs).getBoolean(C.searchBarEngineKey(id), false) }
+        }
+        if (extendSearch || searchProvider != C.ORIGINAL || searchBarMode != C.ORIGINAL) {
             try {
                 loadHooker(BrowserSearchEngines(
                     extendSearch,
                     searchProvider,
-                    preferences(ModulePrefs).getString(C.SEARCH_CUSTOM_NAME, "自定义搜索"),
-                    preferences(ModulePrefs).getString(C.SEARCH_CUSTOM_URL, ""),
-                    preferences(ModulePrefs).getString(C.SEARCH_CUSTOM_ENGINES, ""),
+                    customName, customUrl, customEntries, searchBarMode, barEngineIds,
+                    preferences(ModulePrefs).getString(C.SEARCH_PROVIDER_REVISION, ""),
                 ))
             } catch (t: Throwable) { YLog.error("Reborn: BrowserSearchEngines failed", t) }
         }

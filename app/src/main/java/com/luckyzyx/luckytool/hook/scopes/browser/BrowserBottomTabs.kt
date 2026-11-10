@@ -14,7 +14,9 @@ import org.lsposed.lsparanoid.Obfuscate
  */
 @Obfuscate
 class BrowserBottomTabs : YukiBaseHooker() {
+    private var reportedDockError = false
     override fun onHook() {
+        hookDockWidth()
         val classesAndMethods = listOf(
             "com.heytap.browser.trait.tab.BottomTabDataDefault" to listOf("e", "f", "g"),
             "com.heytap.browser.trait.tab.BottomTabManager" to listOf("l"),
@@ -52,4 +54,35 @@ class BrowserBottomTabs : YukiBaseHooker() {
             }
         }
     }
+
+    private fun hookDockWidth() {
+        try {
+            val toolbar = "com.heytap.browser.root.ToolBar".toClassOrNull()
+                ?: error("ToolBar unavailable")
+            // Both supplied APKs call d(width) before FrameLayout.onMeasure.
+            // Native d uses itemCount * idealItemWidth, which shrinks 3 tabs.
+            toolbar.resolve().firstMethod {
+                name = "d"; parameters(Int::class); returnType = Void.TYPE
+            }.hook {
+                after {
+                    try {
+                        val dock = toolbar.getMethod("getUiAdapterContainer").invoke(instance) as? android.view.View
+                            ?: return@after
+                        val buttons = toolbar.getMethod("getNewsLayout").invoke(instance) as? android.widget.LinearLayout
+                            ?: return@after
+                        BrowserDockLayout.expand(dock, buttons)
+                    } catch (error: Exception) {
+                        if (!reportedDockError) {
+                            reportedDockError = true
+                            YLog.error("Reborn: browser dock layout unavailable", error)
+                        }
+                    }
+                }
+            }
+            YLog.info("Reborn: full-width browser dock hook mapping configured (ToolBar.d)")
+        } catch (error: Exception) {
+            YLog.error("Reborn: browser dock width signature unavailable", error)
+        }
+    }
+
 }

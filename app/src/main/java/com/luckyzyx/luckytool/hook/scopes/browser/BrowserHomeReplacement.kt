@@ -38,31 +38,41 @@ class BrowserHomeReplacement(
     private val navigation = BrowserHomeRouteGate()
     private val fragments = WeakHashMap<Any, WeakReference<Any>>()
     private val homeTag = Any()
+    private var reportedInstall = false
 
     override fun onHook() {
         if (mode == RebornBrowserConfig.URL) hookExplicitHomeClick()
         try {
-            val fragmentClass = "com.heytap.browser.home.NormalHomePageFragment".toClassOrNull() ?: return
-            // 40.10.25.2 uses yh; 40.10.21.9.6 uses xh. Match the verified signature.
-            fragmentClass.resolve().firstMethod {
-                parameters(Context::class, LayoutInflater::class, ViewGroup::class)
-                returnType = View::class
-            }.hook {
-                after {
-                    try {
-                        val fragment = instance
-                        val home = readFieldOfType(fragment, "com.heytap.browser.main.home.a") ?: return@after
-                        if (home.javaClass.name != "com.heytap.browser.main.home.normal.NormalHome") return@after
-                        fragments[home] = WeakReference(fragment)
-                        val major = readFieldOfType(home, "com.heytap.browser.main.home.normal.major.MajorHomePage")
-                        val container = major?.javaClass?.getMethod("getView")?.invoke(major) as? FrameLayout
-                        if (major != null && container != null) installHome(major, home, fragment, container)
-                    } catch (error: Exception) {
-                        YLog.error("Reborn: homepage mapping unavailable; original retained", error)
-                    }
-                }
+            val fragmentClass = "com.heytap.browser.home.NormalHomePageFragment".toClassOrNull()
+                ?: error("NormalHomePageFragment unavailable")
+            // Creation returns an empty wrapper. The real, shared HomeFrame is attached
+            // later (ci in 40.10.21.9.6, di in 40.10.25.2), and can change again.
+            val create = fragmentClass.declaredMethods.single {
+                it.parameterTypes.contentEquals(arrayOf(Context::class.java, LayoutInflater::class.java, ViewGroup::class.java)) &&
+                    it.returnType == View::class.java
             }
-            val majorClass = "com.heytap.browser.main.home.normal.major.MajorHomePage".toClassOrNull() ?: return
+            fragmentClass.resolve().firstMethod { name = create.name }.hook {
+                after { bindFragment(instance) }
+            }
+            val attachName = when (create.name) {
+                "xh" -> "ci"
+                "yh" -> "di"
+                else -> error("Unknown NormalHomePageFragment creation signature: ${create.name}")
+            }
+            fragmentClass.resolve().firstMethod { name = attachName; parameters() }.hook {
+                after { bindFragment(instance) }
+            }
+            // onActiveEnter: catches activation after wrapper creation and tab restore.
+            fragmentClass.resolve().firstMethod {
+                name = if (create.name == "xh") "rh" else "sh"; parameters()
+            }.hook { after { bindFragment(instance) } }
+            fragmentClass.resolve().firstMethod { name = "onHomeChanged"; parameterCount = 2 }.hook {
+                after { bindFragment(instance) }
+            }
+            hookReplacementLayout()
+            YLog.info("Reborn: homepage lifecycle hook mappings configured (${create.name}/$attachName)")
+            val majorClass = "com.heytap.browser.main.home.normal.major.MajorHomePage".toClassOrNull()
+                ?: error("MajorHomePage unavailable")
             majorClass.resolve().firstMethod { name = "getView"; parameters() }.hook {
                 after {
                     try {
@@ -70,7 +80,7 @@ class BrowserHomeReplacement(
                         val home = readFieldOfType(major, "com.heytap.browser.main.home.normal.NormalHome") ?: return@after
                         val fragment = fragments[home]?.get() ?: return@after
                         val container = result as? FrameLayout ?: return@after
-                        installHome(major, home, fragment, container)
+                        installHome(major, home, container)
                     } catch (error: Exception) {
                         YLog.error("Reborn: MajorContainer replacement skipped", error)
                     }
@@ -80,6 +90,54 @@ class BrowserHomeReplacement(
             YLog.error("Reborn: native homepage signatures changed", error)
         }
     }
+
+    private fun bindFragment(fragment: Any) {
+        try {
+            val home = readFieldOfType(fragment, "com.heytap.browser.main.home.a") ?: return
+            if (home.javaClass.name != "com.heytap.browser.main.home.normal.NormalHome") return
+            // HomeFrame is shared across native tabs. Do not let creation of a
+            // background tab overwrite the foreground fragment's owner mapping.
+            val owner = ownerTab(fragment) ?: return
+            if (owner.javaClass.getMethod("isActive").invoke(owner) != true) return
+            fragments[home] = WeakReference(fragment)
+            val major = readFieldOfType(home, "com.heytap.browser.main.home.normal.major.MajorHomePage") ?: return
+            val container = major.javaClass.getMethod("getView").invoke(major) as? FrameLayout ?: return
+            installHome(major, home, container)
+            if (mode == RebornBrowserConfig.URL) queueUrlHome(fragment, home, major, container)
+        } catch (error: Exception) {
+            YLog.error("Reborn: homepage attachment unavailable; original retained", error)
+        }
+    }
+
+    private fun hookReplacementLayout() {
+        val containerClass = "com.heytap.browser.main.home.normal.major.MajorContainer".toClassOrNull()
+            ?: error("MajorContainer unavailable")
+        // MajorContainer delegates measurement/layout to MajorLayoutHelper, whose
+        // scroll offsets are intended for news. Explicitly anchor our own child.
+        containerClass.resolve().firstMethod { name = "onMeasure"; parameters(Int::class, Int::class) }.hook {
+            after {
+                val root = instance as FrameLayout
+                replacement(root)?.measure(
+                    View.MeasureSpec.makeMeasureSpec(root.measuredWidth, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(root.measuredHeight, View.MeasureSpec.EXACTLY),
+                )
+            }
+        }
+        containerClass.resolve().firstMethod {
+            name = "onLayout"; parameters(Boolean::class, Int::class, Int::class, Int::class, Int::class)
+        }.hook {
+            after {
+                val root = instance as FrameLayout
+                replacement(root)?.layout(0, 0, root.width, root.height)
+            }
+        }
+        containerClass.resolve().firstMethod { name = "onInterceptTouchEvent"; parameterCount = 1 }.hook {
+            before { if (replacement(instance as FrameLayout) != null) result = false }
+        }
+    }
+
+    private fun replacement(root: FrameLayout): View? =
+        (0 until root.childCount).map(root::getChildAt).firstOrNull { it.tag === homeTag }
 
     private fun hookExplicitHomeClick() {
         try {
@@ -123,13 +181,16 @@ class BrowserHomeReplacement(
         }
     }
 
-    private fun installHome(major: Any, home: Any, fragment: Any, container: FrameLayout) {
+    private fun installHome(major: Any, home: Any, container: FrameLayout) {
         if ((0 until container.childCount).any { container.getChildAt(it).tag === homeTag }) return
-        val replacement = buildHome(container.context, fragment).apply { tag = homeTag }
+        val replacement = buildHome(container.context, home).apply { tag = homeTag }
         // Build first, retain every original child and all lifecycle references.
         container.addView(replacement, FrameLayout.LayoutParams(-1, -1))
+        if (!reportedInstall) {
+            reportedInstall = true
+            YLog.info("Reborn: custom homepage installed in MajorContainer (mode=$mode)")
+        }
         val weakContainer = WeakReference(container)
-        val weakFragment = WeakReference(fragment)
         val weakHome = WeakReference(home)
         val weakMajor = WeakReference(major)
         val refresh = {
@@ -140,8 +201,8 @@ class BrowserHomeReplacement(
                     if (child.tag !== homeTag && child.visibility == View.VISIBLE) child.visibility = View.INVISIBLE
                 }
                 if (root.childCount > 0 && root.getChildAt(root.childCount - 1) !== replacement) replacement.bringToFront()
-                val host = weakFragment.get()
                 val activeHome = weakHome.get()
+                val host = activeHome?.let { fragments[it]?.get() }
                 val page = weakMajor.get()
                 if (mode == RebornBrowserConfig.URL && host != null && activeHome != null && page != null) {
                     val current = runCatching {
@@ -171,6 +232,7 @@ class BrowserHomeReplacement(
             }
         })
         if (container.isAttachedToWindow) register(container)
+        refresh()
         container.post { refresh() }
     }
 
@@ -187,13 +249,13 @@ class BrowserHomeReplacement(
         return null
     }
 
-    private fun buildHome(context: Context, fragment: Any): View = when (mode) {
-        RebornBrowserConfig.URL -> buildUrlHome(context, fragment)
-        RebornBrowserConfig.SHORTCUTS -> buildShortcutHome(context, fragment)
+    private fun buildHome(context: Context, home: Any): View = when (mode) {
+        RebornBrowserConfig.URL -> buildUrlHome(context, home)
+        RebornBrowserConfig.SHORTCUTS -> buildShortcutHome(context, home)
         else -> FrameLayout(context).apply { setBackgroundColor(background(context)) }
     }
 
-    private fun buildUrlHome(context: Context, fragment: Any): View {
+    private fun buildUrlHome(context: Context, home: Any): View {
         val url = RebornBrowserConfig.validHttpUrl(configuredUrl)
             ?: return message(context, "主页网址无效，请在 LuckyTool 中重新设置")
         // Returning from the native webpage leaves a safe explicit action, not an
@@ -203,7 +265,7 @@ class BrowserHomeReplacement(
             addView(Button(context).apply {
                 text = "打开自定义主页"
                 isAllCaps = false
-                setOnClickListener { openNativeTab(fragment, url) }
+                setOnClickListener { fragments[home]?.get()?.let { openNativeTab(it, url) } }
             }, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         }
     }
@@ -212,6 +274,7 @@ class BrowserHomeReplacement(
         val url = RebornBrowserConfig.validHttpUrl(configuredUrl) ?: return
         view.post {
             try {
+                if (fragments[home]?.get() !== fragment) return@post
                 if (readFieldOfType(home, "com.heytap.browser.main.home.normal.a") !== major) return@post
                 val owner = ownerTab(fragment) ?: return@post
                 // Do not hijack another tab/page when an old lifecycle callback runs.
@@ -223,7 +286,7 @@ class BrowserHomeReplacement(
         }
     }
 
-    private fun buildShortcutHome(context: Context, fragment: Any): View {
+    private fun buildShortcutHome(context: Context, home: Any): View {
         val fg = foreground(context)
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -252,7 +315,7 @@ class BrowserHomeReplacement(
                 grid.addView(Button(context).apply {
                     text = link.title
                     isAllCaps = false
-                    setOnClickListener { openNativeTab(fragment, link.url) }
+                    setOnClickListener { fragments[home]?.get()?.let { openNativeTab(it, link.url) } }
                 }, GridLayout.LayoutParams().apply {
                     width = (context.resources.displayMetrics.widthPixels - dp(context, 56)) / 3
                     height = dp(context, 68)
@@ -282,6 +345,7 @@ class BrowserHomeReplacement(
         val safe = RebornBrowserConfig.validHttpUrl(url) ?: return false
         return try {
             val owner = ownerTab(fragment) ?: return false
+            if (owner.javaClass.getMethod("isActive").invoke(owner) != true) return false
             if (owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return false
             owner.javaClass.getMethod("loadUrl", String::class.java).invoke(owner, safe)
             true

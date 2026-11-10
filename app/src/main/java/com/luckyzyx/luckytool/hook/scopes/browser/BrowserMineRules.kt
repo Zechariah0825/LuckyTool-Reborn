@@ -5,6 +5,8 @@ internal object BrowserMineRules {
     fun isProfile(className: String) = className == "com.heytap.browser.usercenter.my.MyProfileView"
     fun isBookshelf(className: String) =
         className == "com.heytap.browser.usercenter.my.bookshelf.MyBookshelfHistoryCard"
+    fun isAccountInfo(className: String) =
+        className == "com.platform.sdk.center.widget.HeyTapAccountInfoView"
     fun isAccountCard(className: String) =
         className == "com.platform.sdk.center.sdk.mvvm.view.ui.CustomSignInVipCard"
 

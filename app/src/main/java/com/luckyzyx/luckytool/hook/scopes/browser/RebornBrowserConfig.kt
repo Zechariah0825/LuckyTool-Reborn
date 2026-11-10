@@ -12,8 +12,45 @@ object RebornBrowserConfig {
     const val HOME_SHORTCUTS = "reborn_browser_home_shortcuts"
     const val HIDE_BOTTOM_TABS = "reborn_browser_hide_bottom_tabs"
     const val HIDE_MINE_PROMOS = "reborn_browser_hide_mine_promos"
+    const val SEARCH_PROVIDER_REVISION = "reborn_browser_search_provider_revision"
     const val SEARCH_PROVIDER = "reborn_browser_search_provider"
     const val SEARCH_EXTEND = "reborn_browser_search_extend"
+    const val SEARCH_BAR_MODE = "reborn_browser_search_bar_mode"
+    const val SEARCH_BAR_ENGINE_PREFIX = "reborn_browser_search_bar_engine_"
+    const val SEARCH_BAR_HIDDEN = "hidden"
+    const val SEARCH_BAR_CUSTOM = "custom"
+    val nativeSearchBarChoices = listOf(
+        "native_baidu" to "百度", "native_360" to "360 搜索",
+        "native_douyin" to "抖音", "native_video" to "影视",
+    )
+
+    /** Match existing native objects, never manufacture native destinations from labels. */
+    fun nativeSearchBarId(key: String?, label: String?): String? = when {
+        key == "baidu" || label == "百度" -> "native_baidu"
+        key == "360" || label?.replace(" ", "") == "360搜索" -> "native_360"
+        key in setOf("douyin", "douyinvideo") || label == "抖音" -> "native_douyin"
+        label == "影视" -> "native_video"
+        else -> null
+    }
+
+    fun searchBarEngineKey(id: String) = SEARCH_BAR_ENGINE_PREFIX + id
+
+    /** Stable IDs survive renaming and reordering; removed engines never become another entry. */
+    fun availableSearchEngines(name: String, template: String, entries: String): List<SearchEngine> =
+        listOfNotNull(searchEngine(BING, "", ""), searchEngine(GOOGLE, "", ""),
+            searchEngine(CUSTOM, name, template)) + parseCustomSearchEngines(entries)
+
+    fun searchBarEngines(engines: List<SearchEngine>, selectedIds: Set<String>, defaultId: String): List<SearchEngine> =
+        engines.filter { it.id in selectedIds || it.id == defaultId }.sortedBy { if (it.id == defaultId) 0 else 1 }
+
+    /** A live default change alone must not reorder an already-created pager. */
+    fun shouldNormalizeSearchPage(keys: List<String?>, appliedKeys: List<String?>?): Boolean =
+        appliedKeys == null || keys != appliedKeys
+
+    /** Keep the initial page and visible tab indices aligned, with the actual default first. */
+    fun <T> withSearchBarDefault(items: List<T>, default: T, key: (T) -> String?): List<T> =
+        (listOf(default) + items).distinctBy(key)
+
     const val SEARCH_CUSTOM_NAME = "reborn_browser_search_custom_name"
     const val SEARCH_CUSTOM_URL = "reborn_browser_search_custom_url"
     const val SEARCH_CUSTOM_ENGINES = "reborn_browser_search_custom_engines"

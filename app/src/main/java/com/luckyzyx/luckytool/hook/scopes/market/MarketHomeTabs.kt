@@ -17,6 +17,8 @@ import org.lsposed.lsparanoid.Obfuscate
 @Obfuscate
 class MarketHomeTabs : YukiBaseHooker() {
     override fun onHook() {
+        // The home feed has its own recommendation card, separate from tab DTOs.
+        loadHooker(MarketHomeFeaturedContent())
         listOf(
             "com.heytap.cdo.card.domain.dto.SubTabCardDto",
             "com.heytap.cdo.card.global.dto.SubTabCardGlobalDto",

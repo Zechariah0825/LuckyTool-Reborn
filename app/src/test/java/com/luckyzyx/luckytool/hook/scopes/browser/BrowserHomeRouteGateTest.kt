@@ -33,4 +33,23 @@ class BrowserHomeRouteGateTest {
         assertFalse(gate.openOnce(other) { loads++; true })
         assertEquals(1, loads)
     }
+    @Test fun `synchronous nested lifecycle callback cannot navigate twice`() {
+        val gate = BrowserHomeRouteGate()
+        val fragment = Any()
+        var loads = 0
+        assertTrue(gate.openOnce(fragment) {
+            loads++
+            assertFalse(gate.openOnce(fragment) { loads++; true })
+            true
+        })
+        assertEquals(1, loads)
+    }
+
+    @Test fun `native navigation exception does not permanently consume activation`() {
+        val gate = BrowserHomeRouteGate()
+        val fragment = Any()
+        runCatching { gate.openOnce(fragment) { throw IllegalStateException("not attached") } }
+        assertTrue(gate.openOnce(fragment) { true })
+        assertFalse(gate.openOnce(fragment) { true })
+    }
 }

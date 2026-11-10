@@ -25,7 +25,7 @@ android {
         targetSdk = gropify.project.android.targetSdk
 
         versionCode = getVersionCode()
-        versionName = providers.gradleProperty("rebornVersionName").orElse("1.3.5_reborn.4").get()
+        versionName = providers.gradleProperty("rebornVersionName").orElse("1.3.5_reborn.5").get()
         ndk.abiFilters.addAll(arrayOf("arm64-v8a"/*, "armeabi-v7a", "x86", "x86_64"*/))
     }
     // A clean checkout can build debug APKs without private upstream signing files.

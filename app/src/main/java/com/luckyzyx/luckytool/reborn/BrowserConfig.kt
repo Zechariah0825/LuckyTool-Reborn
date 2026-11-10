@@ -13,7 +13,10 @@ object BrowserConfig {
     const val HOME_URL = "reborn_browser_home_url"
     const val QUICK_LINKS = "reborn_browser_quick_links"
     const val EXTEND_SEARCH = "reborn_browser_search_extend"
+    const val SEARCH_BAR_MODE = "reborn_browser_search_bar_mode"
+    const val SEARCH_BAR_ENGINE_PREFIX = "reborn_browser_search_bar_engine_"
     const val ENGINES = "reborn_browser_search_engines"
+    const val SEARCH_PROVIDER_REVISION = "reborn_browser_search_provider_revision"
     const val DEFAULT_ENGINE = "reborn_browser_default_engine"
     const val MARKET_MOMENTS = "reborn_market_moments_home"
 

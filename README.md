@@ -12,6 +12,7 @@ LuckyTool 的实验性修改版本，基于 [luckyzyx/LuckyTool](https://github.
 - `.github/workflows/build-reborn.yml`：单元测试、Lint、Debug APK 构建和产物归档。
 - [BUILD_REBORN.md](BUILD_REBORN.md)：本地构建与 CI 使用说明。
 - [REBORN_NOTES.md](REBORN_NOTES.md)：基础版本修改说明与验证边界。
+- [VALIDATION_REBORN_5.md](VALIDATION_REBORN_5.md)：v0.4 真机反馈修复、v0.5 验证结果与边界。
 - [VALIDATION_REBORN_4.md](VALIDATION_REBORN_4.md)：本轮浏览器/商店定制、实际验证结果与剩余限制。
 - [README_UPSTREAM.md](README_UPSTREAM.md)：保留的上游说明。
 - [REPOSITORY_BOOTSTRAP.md](REPOSITORY_BOOTSTRAP.md)：源码导入前的仓库说明，作为历史记录保留。
@@ -28,7 +29,7 @@ bash ./gradlew --no-daemon :app:lintDebug
 
 也可以在 [Actions](https://github.com/Zechariah0825/LuckyTool-Reborn/actions) 中运行 **Build LuckyTool Reborn APK**。APK 编译成功后会上传产物，包含提交信息和 SHA-256 校验值。单元测试是必过检查，失败时保留已构建 APK 并使构建任务失败。完整 Lint 在独立的非阻断任务中运行，实际失败会显示警告和完整报告，因此 workflow 绿色不等于 Lint 无错误。
 
-此前 v0.3 基础版已在本地构建，196 项单元测试通过，其历史结果见 [VALIDATION.md](VALIDATION.md)。本轮新增功能、验证和限制见 [VALIDATION_REBORN_4.md](VALIDATION_REBORN_4.md)，不能把基础版结果当成本轮功能验证。GitHub Actions 按用户要求暂缓，不将配置存在当作运行成功。
+此前 v0.3 基础版已在本地构建，196 项单元测试通过，其历史结果见 [VALIDATION.md](VALIDATION.md)。v0.4 后的反馈修复、验证和限制见 [VALIDATION_REBORN_5.md](VALIDATION_REBORN_5.md)，不能把基础版结果当成本轮功能验证。GitHub Actions 按用户要求暂缓，不将配置存在当作运行成功。
 
 ## 使用前注意
 
