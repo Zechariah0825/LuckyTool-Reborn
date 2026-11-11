@@ -15,7 +15,7 @@ Integrated in Reborn v0.6 on the browser-fix base `6d7b5f4098359d4f3ba4250ee2ca0
 
 ## Scope and limits
 
-105 unique setting keys are enrolled: 104 shared UI switches and one string mode, across 107 Hook files and 24 scope directories. The static UI inventory has 386 literal switches, so 282 remain uninstrumented. Generated keys and custom-rendered controls require separate auditing. Run `python scripts/audit-hook-diagnostics.py` for the checked exact list.
+105 unique setting keys are enrolled: 104 shared UI switches and one string mode, across 107 Hook files and 24 scope directories. With the three v0.8 search controls, the static UI inventory has 389 literal switches, so 285 remain uninstrumented. Generated keys and custom-rendered controls require separate auditing. Run `python scripts/audit-hook-diagnostics.py` for the checked exact list.
 
 Browser/Market repair hooks are not enrolled in this diagnostic batch. Compound/global FeatureConfig, SystemProperties, multi-setting layouts, async tasks and direct field writes require precise key/dependency attribution or readback; generic callbacks must not claim every enabled feature is effective. Enabling a switch is never evidence.
 

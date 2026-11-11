@@ -2,6 +2,7 @@ package com.luckyzyx.luckytool.hook.hookers
 
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.log.YLog
+import com.luckyzyx.luckytool.hook.scopes.browser.BrowserSearchLanding
 import com.luckyzyx.luckytool.hook.scopes.browser.BrowserUiCleanup
 import com.luckyzyx.luckytool.hook.scopes.browser.BrowserHomeReplacement
 import com.luckyzyx.luckytool.hook.scopes.browser.BrowserBottomTabs
@@ -18,6 +19,10 @@ import org.lsposed.lsparanoid.Obfuscate
 @Obfuscate
 object HookBrowser : YukiBaseHooker() {
     override fun onHook() {
+        if (preferences(ModulePrefs).getBoolean("reborn_browser_search_history_only", true)) {
+            try { loadHooker(BrowserSearchLanding()) }
+            catch (t: Throwable) { YLog.error("Reborn: BrowserSearchLanding failed", t) }
+        }
         val hideMine = preferences(ModulePrefs).getBoolean(C.HIDE_MINE_PROMOS, false)
         val hideBottom = preferences(ModulePrefs).getBoolean(C.HIDE_BOTTOM_TABS, false)
         if (hideMine || hideBottom) {

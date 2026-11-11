@@ -24,6 +24,21 @@ object OplusMarketPage {
             summary = "从栏目数据中移除精选，其他栏目保持原样；重启软件商店生效",
             notify = true,
         )
+        category("Reborn · 搜索页")
+        switch(
+            key = "reborn_market_clean_search_landing",
+            title = "推荐区仅保留「大家正在搜」",
+            summary = "移除人气热搜、精品推荐和热门 APP 等推荐板块；不删除搜索历史；重启软件商店生效",
+            default = true,
+            notify = true,
+        )
+        switch(
+            key = "reborn_market_blank_search_hint",
+            title = "保持空白搜索框",
+            summary = "移除滚动推荐关键词，不修改已输入的搜索内容；重启软件商店生效",
+            default = true,
+            notify = true,
+        )
         category("原有优化")
         switch(
             key = "remove_market_splash_page_app_recommend",

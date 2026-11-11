@@ -36,6 +36,9 @@ class BrowserHomeReplacement(
     private val shortcuts: String,
 ) : YukiBaseHooker() {
     private val navigation = BrowserHomeRouteGate()
+    private val boundary = BrowserHomeBoundary()
+    private val dispatching = ThreadLocal<BrowserHomeBoundary.Request?>()
+    private val loading = ThreadLocal.withInitial { mutableListOf<BrowserHomeBoundary.Request?>() }
     private val fragments = WeakHashMap<Any, WeakReference<Any>>()
     private val explicitWebHome = ThreadLocal.withInitial { 0 }
     private val pendingRecovery = WeakHashMap<Any, Long>()
@@ -69,6 +72,12 @@ class BrowserHomeReplacement(
                 val tab = "com.heytap.browser.tab.BaseTab".toClassOrNull() ?: error("BaseTab unavailable")
                 val page = "com.heytap.browser.page.TabPageFragment".toClassOrNull() ?: error("TabPageFragment unavailable")
                 check(routes.matches(tab, page)) { "Browser URL route signature mismatch; native homepage retained" }
+                val backRoutes = BrowserHomeBackRoutes.select(info.versionName, info.longVersionCode, create.name)
+                    ?: error("Browser Home Back boundary version unverified")
+                val params = "com.heytap.browser.platform.load.LoadParams".toClassOrNull() ?: error("LoadParams unavailable")
+                val controller = "com.heytap.browser.tab.NavigationController".toClassOrNull() ?: error("NavigationController unavailable")
+                check(backRoutes.matches(tab, page, params, controller)) { "Browser Home boundary signature mismatch" }
+                hookHomeBoundary(backRoutes, tab, params, controller)
                 hookNativeTabRoutes(routes)
                 hookExplicitHomeClick()
                 hookSubpageSelection()
@@ -190,6 +199,93 @@ class BrowserHomeReplacement(
                 YLog.error("Reborn: explicit web Home mapping unavailable: $name", error)
             }
         }
+    }
+
+    /**
+     * Native L/M (reference M/N) consumes the WebView's own history first.
+     * At our first web page only, return the same false as native index zero.
+     * The native caller then performs G/H -> onHardBackNotHandle, retaining its
+     * own exit prompt/background policy. No synthetic Back, reload or stack edit.
+     */
+    private fun hookHomeBoundary(
+        routes: BrowserHomeBackRoutes, tab: Class<*>, params: Class<*>, controller: Class<*>,
+    ) {
+        val page = "com.heytap.browser.page.TabPageFragment".toClassOrNull() ?: error("TabPageFragment unavailable")
+        fun nativeController(owner: Any): Any? = readFieldOfType(owner, controller.name)
+        fun index(owner: Any): Int? = nativeController(owner)?.let {
+            controller.getDeclaredMethod("E").invoke(it) as? Int
+        }
+        tab.resolve().firstMethod {
+            name = routes.permissionLoad; parameters(params, Boolean::class.javaPrimitiveType!!); returnType = Void.TYPE
+        }.hook {
+            before {
+                dispatching.get()?.takeIf { it.tab.get() === instance }?.let { request ->
+                    args[0]?.let { boundary.track(it, request) }
+                }
+            }
+        }
+        tab.resolve().firstMethod {
+            name = routes.dispatchLoad; parameters(params, Boolean::class.javaPrimitiveType!!); returnType = Void.TYPE
+        }.hook {
+            before {
+                val scopes = loading.get()
+                scopes.add(null)
+                val request = args[0]?.let(boundary::request)
+                var accepted: BrowserHomeBoundary.Request? = null
+                if (request != null) {
+                    val home = request.home.get()
+                    val valid = request.tab.get() === instance && home != null &&
+                        navigation.ownsDispatch(home, request.ticket) &&
+                        tab.getMethod("isActive").invoke(instance) == true &&
+                        tab.getMethod("getCurrent").invoke(instance) === home && isSelectedHome(home)
+                    if (valid) accepted = request else {
+                        // A canceled/late permission result belongs to this request,
+                        // not whichever tab or page became active in the meantime.
+                        result = null
+                        YLog.info("Reborn: expired custom Home dispatch ignored")
+                    }
+                }
+                scopes[scopes.lastIndex] = accepted
+            }
+            after { loading.get().let { if (it.isNotEmpty()) it.removeAt(it.lastIndex) } }
+        }
+        tab.resolve().firstMethod {
+            name = routes.showPage; parameters(page, Boolean::class.javaPrimitiveType!!); returnType = Void.TYPE
+        }.hook {
+            before {
+                val request = loading.get().lastOrNull() ?: return@before
+                val home = request.home.get() ?: return@before
+                val target = args[0] ?: return@before
+                if (request.tab.get() !== instance || tab.getMethod("getCurrent").invoke(instance) !== home) return@before
+                val navigationController = nativeController(instance) ?: return@before
+                val targetIndex = controller.getDeclaredMethod("B", page).invoke(navigationController, target) as Int
+                if (boundary.capture(request, instance, home, target, targetIndex)) {
+                    YLog.info("Reborn: custom Home web boundary captured")
+                }
+            }
+        }
+        tab.resolve().firstMethod {
+            name = routes.backwardPage
+            parameters(Boolean::class, Boolean::class)
+            returnType = Boolean::class.javaPrimitiveType!!
+        }.hook {
+            before {
+                val home = tab.getMethod("getHomePage").invoke(instance) ?: return@before
+                val current = tab.getMethod("getCurrent").invoke(instance) ?: return@before
+                if (boundary.isRoot(home, current, index(instance) ?: -1,
+                        tab.getMethod("isActive").invoke(instance) == true)) {
+                    result = false
+                }
+            }
+        }
+        YLog.info("Reborn: custom Home Back boundary configured (${routes.backwardPage})")
+    }
+
+    private fun isSelectedHome(fragment: Any): Boolean {
+        val home = readFieldOfType(fragment, "com.heytap.browser.main.home.a") ?: return false
+        if (fragments[home]?.get() !== fragment) return false
+        val major = readFieldOfType(home, "com.heytap.browser.main.home.normal.major.MajorHomePage") ?: return false
+        return readFieldOfType(home, "com.heytap.browser.main.home.normal.a") === major
     }
 
     private fun hookNativeTabRoutes(routes: BrowserHomeNativeRoutes) {
@@ -336,10 +432,13 @@ class BrowserHomeReplacement(
             if (root != null && replacement.parent === root) {
                 val activeHome = weakHome.get()
                 val host = activeHome?.let { fragments[it]?.get() }
-                val native = mode == RebornBrowserConfig.URL && host != null && navigation.showNativeHome(host)
-                content.show(root, replacement, native)
+                val recovering = mode == RebornBrowserConfig.URL && host != null && navigation.showRecovery(host)
+                // Never uncover the native news anchor, including canceled
+                // permission, a failed dispatch, or an unusual return path.
+                content.show(root, replacement, false)
+                (replacement as? UrlHomePanel)?.showRecovery(recovering)
                 val page = weakMajor.get()
-                if (!native && mode == RebornBrowserConfig.URL && host != null && activeHome != null && page != null) {
+                if (!recovering && mode == RebornBrowserConfig.URL && host != null && activeHome != null && page != null) {
                     val current = runCatching {
                         readFieldOfType(activeHome, "com.heytap.browser.main.home.normal.a")
                     }.getOrNull()
@@ -385,19 +484,53 @@ class BrowserHomeReplacement(
     }
 
     private fun buildHome(context: Context, home: Any): View = when (mode) {
-        RebornBrowserConfig.URL -> buildUrlHome(context)
+        RebornBrowserConfig.URL -> buildUrlHome(context, home)
         RebornBrowserConfig.SHORTCUTS -> buildShortcutHome(context, home)
         else -> FrameLayout(context).apply { setBackgroundColor(background(context)) }
     }
 
-    private fun buildUrlHome(context: Context): View {
+    private inner class UrlHomePanel(context: Context, retry: () -> Unit) : LinearLayout(context) {
+        private var recoveryShown: Boolean? = null
+        private val status = TextView(context).apply {
+            textSize = 17f
+            gravity = Gravity.CENTER
+            setTextColor(foreground(context))
+        }
+        private val retryButton = Button(context).apply {
+            text = "重试"
+            setOnClickListener { retry() }
+        }
+        init {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 24), 0, dp(context, 24), 0)
+            setBackgroundColor(background(context))
+            addView(status, LayoutParams(-1, -2))
+            addView(retryButton, LayoutParams(-2, -2))
+            showRecovery(false)
+        }
+        fun showRecovery(recovering: Boolean) {
+            if (recoveryShown == recovering) return
+            recoveryShown = recovering
+            status.text = if (recovering) "自定义主页暂未打开，请重试" else "正在打开主页…"
+            retryButton.visibility = if (recovering) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun buildUrlHome(context: Context, home: Any): View {
         if (RebornBrowserConfig.validHttpUrl(configuredUrl) == null) {
             return message(context, "主页网址无效，请在 LuckyTool 中重新设置")
         }
-        // A valid URL is navigation, never an interstitial requiring another tap.
-        // On history return, the native interactive anchor is restored instead.
-        // Only an explicit Home action authorizes another automatic redirect.
-        return FrameLayout(context).apply { setBackgroundColor(background(context)) }
+        val weakHome = WeakReference(home)
+        // Successful navigation is automatic. Only a failed/canceled native load
+        // exposes Retry, and it never uncovers the original news content.
+        return UrlHomePanel(context) {
+            val host = weakHome.get()?.let { fragments[it]?.get() }
+            if (host != null && isSelectedHome(host)) {
+                navigation.requestHome(host)
+                bindFragment(host)
+            }
+        }
     }
 
     private fun queueUrlHome(fragment: Any, home: Any, major: Any, view: View) {
@@ -414,7 +547,7 @@ class BrowserHomeReplacement(
                 var attempted = false
                 val dispatched = navigation.openOnce(fragment, ticket) {
                     attempted = true
-                    openNativeTab(fragment, url)
+                    openNativeTab(fragment, url, ticket)
                 }
                 if (attempted && !dispatched && navigation.failedDispatch(fragment, ticket)) {
                     view.requestLayout()
@@ -423,7 +556,7 @@ class BrowserHomeReplacement(
                 }
             } catch (error: Exception) {
                 if (navigation.failedDispatch(fragment, ticket)) view.requestLayout()
-                YLog.error("Reborn: native homepage activation skipped; native fallback requested", error)
+                YLog.error("Reborn: native homepage activation skipped; recovery controls requested", error)
             }
         }
     }
@@ -443,7 +576,7 @@ class BrowserHomeReplacement(
                     // Do not resubmit a permission-blocked native request, clear
                     // history, or strand the user on an empty replacement.
                     view.requestLayout()
-                    YLog.info("Reborn: homepage request did not leave Home; native fallback requested")
+                    YLog.info("Reborn: homepage request did not leave Home; recovery controls requested")
                 }
             } catch (error: Exception) {
                 YLog.error("Reborn: homepage request recovery unavailable", error)
@@ -506,13 +639,19 @@ class BrowserHomeReplacement(
     private fun ownerTab(fragment: Any): Any? =
         readFieldOfType(fragment, "com.heytap.browser.api.tab.x")
 
-    private fun openNativeTab(fragment: Any, url: String): Boolean {
+    private fun openNativeTab(fragment: Any, url: String, ticket: Long? = null): Boolean {
         val safe = RebornBrowserConfig.validHttpUrl(url) ?: return false
         return try {
             val owner = ownerTab(fragment) ?: return false
             if (owner.javaClass.getMethod("isActive").invoke(owner) != true) return false
             if (owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return false
-            owner.javaClass.getMethod("loadUrl", String::class.java).invoke(owner, safe)
+            val previous = dispatching.get()
+            try {
+                dispatching.set(ticket?.let { BrowserHomeBoundary.Request(owner, fragment, it) })
+                owner.javaClass.getMethod("loadUrl", String::class.java).invoke(owner, safe)
+            } finally {
+                dispatching.set(previous)
+            }
             true
         } catch (error: Exception) {
             YLog.error("Reborn: cannot load URL in native owner tab", error)

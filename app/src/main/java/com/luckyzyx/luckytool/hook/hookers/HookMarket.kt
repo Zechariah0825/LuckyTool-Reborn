@@ -3,6 +3,8 @@ package com.luckyzyx.luckytool.hook.hookers
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.log.YLog
 import com.luckyzyx.luckytool.hook.scopes.market.DefaultExpandUpdateList
+import com.luckyzyx.luckytool.hook.scopes.market.MarketBlankSearchHint
+import com.luckyzyx.luckytool.hook.scopes.market.MarketSearchLanding
 import com.luckyzyx.luckytool.hook.scopes.market.MarketHomeTabs
 import com.luckyzyx.luckytool.hook.scopes.market.RemoveMarketMinePageAppRecommend
 import com.luckyzyx.luckytool.hook.scopes.market.RemoveMarketSplashPageAppRecommend
@@ -17,6 +19,14 @@ object HookMarket : YukiBaseHooker() {
         if (preferences(ModulePrefs).getBoolean("reborn_market_remove_featured_tab", false)) {
             try { loadHooker(MarketHomeTabs()) }
             catch (t: Throwable) { YLog.error("Reborn: MarketHomeTabs failed", t) }
+        }
+        if (preferences(ModulePrefs).getBoolean("reborn_market_clean_search_landing", true)) {
+            try { loadHooker(MarketSearchLanding()) }
+            catch (t: Throwable) { YLog.error("Reborn: MarketSearchLanding failed", t) }
+        }
+        if (preferences(ModulePrefs).getBoolean("reborn_market_blank_search_hint", true)) {
+            try { loadHooker(MarketBlankSearchHint()) }
+            catch (t: Throwable) { YLog.error("Reborn: MarketBlankSearchHint failed", t) }
         }
         // Native Reborn settings do not need a DEX scan. Avoid parsing the whole
         // APK when every legacy DexKit feature is disabled.

@@ -102,6 +102,14 @@ object OplusBrowserPage {
             summary = "仅处理「我的」中的小说卡片和领现金按钮，保留登录、账户及其他工具",
             notify = true,
         )
+        category("Reborn · 搜索页")
+        switch(
+            key = "reborn_browser_search_history_only",
+            title = "搜索页仅保留搜索历史",
+            summary = "移除空搜索页的广告、热榜与推荐，保留搜索、历史和清除历史；重启浏览器生效",
+            default = true,
+            notify = true,
+        )
         category("Reborn · 搜索引擎")
         switch(
             key = C.SEARCH_EXTEND,

@@ -53,7 +53,7 @@ A checked-in workflow is not evidence of a successful run. Verify the run's exac
 
 ## Signing and installation
 
-Debug builds use the Android Gradle Plugin's normal local debug key; no private signing material is committed. This key is not the official LuckyTool key. A new machine or CI runner may create a different debug key, so artifacts from separate runs are not guaranteed to support in-place upgrades.
+Ordinary debug builds use the Android Gradle Plugin's normal local debug key; no private signing material is committed. The delivered v0.8 artifact instead explicitly selects a private, backed-up signing key through external build configuration. Its certificate is not compatible with the delivered v0.7 or official LuckyTool. A new machine or CI runner without that explicit configuration may create a different debug key, so artifacts from separate runs are not guaranteed to support in-place upgrades.
 
 The application ID remains `com.luckyzyx.luckytool`. Do not assume a debug build can replace the official app. Back up settings first and test on a suitable device. Keep any intended long-term signing key private and use it consistently for updates.
 
@@ -65,6 +65,6 @@ Compilation, unit tests, and lint do not establish Android 17 / ColorOS 17 runti
 
 ## Historical v0.3 local result
 
-For the current browser/Market implementation and results, see `VALIDATION_REBORN_4.md`. The following records the earlier base build.
+For the current browser/Market implementation and results, see `VALIDATION_REBORN_8.md`. The following records the earlier base build.
 
 The modified project produced a debug APK locally. All 196 unit tests across 34 suites passed. Full lint failed with 414 errors, 559 warnings, and 8 informational findings. The six error-bearing files are unchanged from the supplied source archive; no blanket suppression or baseline was added. See `VALIDATION.md` for categories, commands, artifact hashes, and verification limits. These results do not imply a successful GitHub Actions run or a device test.

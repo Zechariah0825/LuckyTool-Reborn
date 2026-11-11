@@ -104,18 +104,18 @@ class BrowserHomeRouteGateTest {
         })
         assertFalse(gate.openOnce(home) { true })
     }
-    @Test fun `only observed departure and history return reveal native Home`() {
+    @Test fun `only observed departure and history return select recovery without redirecting`() {
         val gate = BrowserHomeRouteGate()
         val home = Any()
         assertTrue(gate.openOnce(home) { true })
         gate.returnedHome(home)
-        assertFalse(gate.showNativeHome(home))
+        assertFalse(gate.showRecovery(home))
         gate.leftHome(home)
         gate.returnedHome(home)
-        assertTrue(gate.showNativeHome(home))
+        assertTrue(gate.showRecovery(home))
         assertFalse(gate.openOnce(home) { true })
         gate.rearm(home)
-        assertFalse(gate.showNativeHome(home))
+        assertFalse(gate.showRecovery(home))
         assertTrue(gate.openOnce(home) { true })
     }
 
@@ -126,17 +126,17 @@ class BrowserHomeRouteGateTest {
         gate.leftHome(home)
         gate.rearm(home)
         gate.returnedHome(home)
-        assertFalse(gate.showNativeHome(home))
+        assertFalse(gate.showRecovery(home))
         assertTrue(gate.openOnce(home) { true })
     }
-    @Test fun `accepted load without page change recovers native controls without retry loop`() {
+    @Test fun `accepted load without page change selects recovery controls without retry loop`() {
         val gate = BrowserHomeRouteGate()
         val home = Any()
         val token = gate.ticket(home)
         assertTrue(gate.openOnce(home, token) { true })
         assertTrue(gate.needsRecovery(home, token))
         assertTrue(gate.recoverUndispatched(home, token))
-        assertTrue(gate.showNativeHome(home))
+        assertTrue(gate.showRecovery(home))
         assertFalse(gate.openOnce(home) { true })
         assertFalse(gate.recoverUndispatched(home, token))
     }
@@ -148,7 +148,7 @@ class BrowserHomeRouteGateTest {
         assertTrue(gate.openOnce(home, old) { true })
         gate.rearm(home)
         assertFalse(gate.recoverUndispatched(home, old))
-        assertFalse(gate.showNativeHome(home))
+        assertFalse(gate.showRecovery(home))
         assertTrue(gate.openOnce(home) { true })
         gate.leftHome(home)
         assertFalse(gate.recoverUndispatched(home, gate.ticket(home)))
@@ -173,7 +173,7 @@ class BrowserHomeRouteGateTest {
         assertTrue(gate.openOnce(home) { true })
         assertTrue(gate.recoverUndispatched(home, gate.ticket(home)))
         gate.requestHome(home)
-        assertFalse(gate.showNativeHome(home))
+        assertFalse(gate.showRecovery(home))
         assertTrue(gate.openOnce(home) { true })
     }
     @Test fun `native invocation failure restores usable Home and requires explicit retry`() {
@@ -182,7 +182,7 @@ class BrowserHomeRouteGateTest {
         val ticket = gate.ticket(home)
         assertFalse(gate.openOnce(home, ticket) { false })
         assertTrue(gate.failedDispatch(home, ticket))
-        assertTrue(gate.showNativeHome(home))
+        assertTrue(gate.showRecovery(home))
         assertFalse(gate.openOnce(home) { true })
         gate.requestHome(home)
         assertTrue(gate.openOnce(home) { true })
@@ -194,7 +194,32 @@ class BrowserHomeRouteGateTest {
         val old = gate.ticket(home)
         gate.requestHome(home)
         assertFalse(gate.failedDispatch(home, old))
-        assertFalse(gate.showNativeHome(home))
+        assertFalse(gate.showRecovery(home))
         assertTrue(gate.openOnce(home) { true })
     }
+    @Test fun `late permission is accepted only while exact request still owns this Home`() {
+        val gate = BrowserHomeRouteGate()
+        val home = Any()
+        val token = gate.ticket(home)
+        gate.openOnce(home, token) { true }
+        assertTrue(gate.ownsDispatch(home, token))
+        gate.recoverUndispatched(home, token)
+        assertTrue(gate.ownsDispatch(home, token)) // Timeout UI alone is not cancellation.
+        gate.requestHome(home)
+        assertFalse(gate.ownsDispatch(home, token))
+    }
+
+    @Test fun `switch away cancels permission request and leaves retry on return`() {
+        val gate = BrowserHomeRouteGate()
+        val home = Any()
+        val token = gate.ticket(home)
+        gate.openOnce(home, token) { true }
+        gate.invalidate(home)
+        assertFalse(gate.ownsDispatch(home, token))
+        assertTrue(gate.showRecovery(home))
+        assertFalse(gate.openOnce(home) { true })
+        gate.requestHome(home)
+        assertTrue(gate.openOnce(home) { true })
+    }
+
 }
