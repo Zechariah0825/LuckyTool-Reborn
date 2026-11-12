@@ -6,8 +6,6 @@ import com.highcapable.kavaref.extension.classOf
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.extension.kavaref.toClass
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
-import com.luckyzyx.luckytool.diagnostics.ObservedFeature
-import com.luckyzyx.luckytool.diagnostics.interceptObserved
 import com.luckyzyx.luckytool.utils.DexkitUtils.checkDataList
 import org.lsposed.lsparanoid.Obfuscate
 import org.luckypray.dexkit.DexKitBridge
@@ -15,64 +13,58 @@ import org.luckypray.dexkit.DexKitBridge
 @Obfuscate
 class RemoveDpiRestartRecovery(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
     override fun onHook() {
-        val feature = ObservedFeature("remove_dpi_restart_recovery", true)
-        feature.setup {
-            loadHooker(HookSettingsUtils(dexKitBridge))
-        }
+        loadHooker(HookSettingsUtils(dexKitBridge))
     }
 
     @Obfuscate
     class HookSettingsUtils(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
         override fun onHook() {
-            val feature = ObservedFeature("remove_dpi_restart_recovery", true)
-            feature.setup {
-                //Source SettingsUtils
-                dexKitBridge.findClass {
+            //Source SettingsUtils
+            dexKitBridge.findClass {
+                matcher {
+                    addMethod {
+                        paramTypes(classOf<Context>(), classOf<Boolean>())
+                    }
+                    addMethod {
+                        paramTypes(
+                            classOf<String>(),
+                            classOf<Int>(),
+                            classOf<Int>(),
+                            classOf<Boolean>()
+                        )
+                        usingStrings("restoreCompassPhoneDisplayDensity")
+                    }
+                    addMethod {
+                        paramTypes(classOf<Context>(), classOf<String>(), classOf<Int>())
+                        usingStrings("restorePhoneDisplayDensity")
+                    }
+                    usingStrings("SettingsUtils")
+                }
+            }.apply {
+                checkDataList("RemoveDpiRestartRecovery Clazz")
+                findMethod {
                     matcher {
-                        addMethod {
-                            paramTypes(classOf<Context>(), classOf<Boolean>())
-                        }
-                        addMethod {
+                        paramTypes(classOf<Context>(), classOf<Boolean>())
+                        addInvoke {
                             paramTypes(
-                                classOf<String>(),
-                                classOf<Int>(),
-                                classOf<Int>(),
-                                classOf<Boolean>()
+                                classOf<String>(), classOf<Int>(),
+                                classOf<Int>(), classOf<Boolean>()
                             )
                             usingStrings("restoreCompassPhoneDisplayDensity")
                         }
-                        addMethod {
+                        addInvoke {
                             paramTypes(classOf<Context>(), classOf<String>(), classOf<Int>())
                             usingStrings("restorePhoneDisplayDensity")
                         }
-                        usingStrings("SettingsUtils")
                     }
                 }.apply {
-                    checkDataList("RemoveDpiRestartRecovery Clazz")
-                    findMethod {
-                        matcher {
-                            paramTypes(classOf<Context>(), classOf<Boolean>())
-                            addInvoke {
-                                paramTypes(
-                                    classOf<String>(), classOf<Int>(),
-                                    classOf<Int>(), classOf<Boolean>()
-                                )
-                                usingStrings("restoreCompassPhoneDisplayDensity")
-                            }
-                            addInvoke {
-                                paramTypes(classOf<Context>(), classOf<String>(), classOf<Int>())
-                                usingStrings("restorePhoneDisplayDensity")
-                            }
-                        }
-                    }.apply {
-                        checkDataList("RemoveDpiRestartRecovery Method")
-                        single().className.toClass().resolve().apply {
-                            firstMethod {
-                                name = single().methodName
-                                parameters(Context::class, Boolean::class)
-                            }.hook {
-                                interceptObserved(feature)
-                            }
+                    checkDataList("RemoveDpiRestartRecovery Method")
+                    single().className.toClass().resolve().apply {
+                        firstMethod {
+                            name = single().methodName
+                            parameters(Context::class, Boolean::class)
+                        }.hook {
+                            intercept()
                         }
                     }
                 }

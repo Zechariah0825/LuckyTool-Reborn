@@ -1,7 +1,6 @@
 package com.luckyzyx.luckytool.hook
 
 import android.annotation.SuppressLint
-import com.luckyzyx.luckytool.diagnostics.HookDiagnostics
 import com.highcapable.yukihookapi.annotation.xposed.YukiHookLibXposedEntry
 import com.highcapable.yukihookapi.hook.factory.configure
 import com.highcapable.yukihookapi.hook.factory.encase
@@ -171,10 +170,6 @@ class MainHook : YukiHookXposedModule {
 
     override fun onHook() = encase {
         if (isMasterEnabled()) return@encase
-
-        // On-demand diagnostics: a reply proves loading, not functional success.
-        loadApp { HookDiagnostics.attach(this) }
-        loadSystem { HookDiagnostics.attach(this) }
 
         //系统框架
         loadSystem(HookAndroid)

@@ -37,6 +37,7 @@ class BrowserSearchIconLoader(
     private val cache = LinkedHashMap<String, Entry>(64, 0.75f, true)
 
     fun request(origin: String?, label: String, ready: (Icon) -> Unit): Icon {
+        if (BrowserGoogleIcon.matches(origin)) return googleIcon
         val key = origin ?: "fallback:${label.take(40)}"
         val entry: Entry
         synchronized(cache) {
@@ -74,6 +75,7 @@ class BrowserSearchIconLoader(
     }
 
     companion object {
+        private val googleIcon by lazy { icon(requireNotNull(decode(BrowserGoogleIcon.bytes()))) }
         private val client by lazy {
             OkHttpClient.Builder().cookieJar(CookieJar.NO_COOKIES)
                 .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)

@@ -39,7 +39,7 @@ mutation/readback evidence can report a measured modification. Stale processes,
 changed configuration/module/host APK identity, malformed or unmatched replies
 and expired observations cannot be reused as current positive evidence.
 
-See `docs/HOOK_DIAGNOSTICS.md` for scope, privacy, lifecycle and transport limits.
+This section records v0.6 only. The experimental diagnostics feature and its documentation were later removed at the user’s request.
 
 ## Validation
 

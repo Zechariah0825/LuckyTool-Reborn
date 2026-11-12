@@ -17,6 +17,18 @@ import java.util.concurrent.Executor
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [32], application = android.app.Application::class)
 class BrowserSearchIconLoaderTest {
+    @Test fun `Google uses local four color icon without network or label matching`() {
+        val loader = BrowserSearchIconLoader(Executor { fail("Google must work offline") })
+        val bitmap = loader.request("https://www.google.com", "Google") {}.bitmap
+        val colors = (0 until bitmap.height).flatMap { y -> (0 until bitmap.width).map { x -> bitmap.getPixel(x, y) } }
+        assertTrue(colors.any { Color.red(it) > 200 && Color.green(it) < 130 })
+        assertTrue(colors.any { Color.blue(it) > 180 && Color.red(it) < 120 })
+        assertTrue(colors.any { Color.green(it) > 130 && Color.red(it) < 100 })
+        assertTrue(colors.any { Color.red(it) > 200 && Color.green(it) > 150 && Color.blue(it) < 100 })
+        assertFalse(BrowserGoogleIcon.matches("https://google.com.evil.example"))
+        assertFalse(BrowserGoogleIcon.matches("https://notgoogle.com"))
+    }
+
     private fun png(): ByteArray = ByteArrayOutputStream().apply {
         Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
             .compress(Bitmap.CompressFormat.PNG, 100, this)

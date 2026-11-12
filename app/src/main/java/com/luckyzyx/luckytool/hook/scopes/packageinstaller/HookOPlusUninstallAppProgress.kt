@@ -7,8 +7,6 @@ import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.extension.kavaref.toClass
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
-import com.luckyzyx.luckytool.diagnostics.ObservedFeature
-import com.luckyzyx.luckytool.diagnostics.afterObserved
 import com.luckyzyx.luckytool.utils.DexkitUtils.checkDataList
 import com.luckyzyx.luckytool.utils.ModulePrefs
 import org.lsposed.lsparanoid.Obfuscate
@@ -19,28 +17,25 @@ import org.luckypray.dexkit.result.MethodData
 class HookOPlusUninstallAppProgress(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
 
     val autoDone = preferences(ModulePrefs).getBoolean("auto_click_uninstall_button", false)
-    private val feature = ObservedFeature("auto_click_uninstall_button", autoDone)
 
     override fun onHook() {
-        feature.setup {
-            //Source OPlusUninstallAppProgress
-            dexKitBridge.findClass {
-                matcher {
-                    className("com.android.packageinstaller.oplus.OPlusUninstallAppProgress")
-                }
-            }.apply {
-                checkDataList("OPlusUninstallAppProgress")
-
-                val initView = findMethod {
-                    matcher {
-                        paramCount(0)
-                        returnType(Void.TYPE)
-                        usingStrings("source_info", "package_name", "package_size")
-                    }
-                }.checkDataList("initView").single()
-
-                if (autoDone) hookAutoDone(initView)
+        //Source OPlusUninstallAppProgress
+        dexKitBridge.findClass {
+            matcher {
+                className("com.android.packageinstaller.oplus.OPlusUninstallAppProgress")
             }
+        }.apply {
+            checkDataList("OPlusUninstallAppProgress")
+
+            val initView = findMethod {
+                matcher {
+                    paramCount(0)
+                    returnType(Void.TYPE)
+                    usingStrings("source_info", "package_name", "package_size")
+                }
+            }.checkDataList("initView").single()
+
+            if (autoDone) hookAutoDone(initView)
         }
     }
 
@@ -48,7 +43,7 @@ class HookOPlusUninstallAppProgress(val dexKitBridge: DexKitBridge) : YukiBaseHo
     fun hookAutoDone(initView: MethodData) {
         initView.className.toClass().resolve().apply {
             firstMethod { name = initView.methodName }.hook {
-                afterObserved(feature) {
+                after {
                     val activity = instance<Activity>()
                     activity.findViewById<Button>(
                         activity.resources.getIdentifier(

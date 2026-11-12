@@ -1,7 +1,5 @@
 package com.luckyzyx.luckytool.hook.scopes.battery
 
-import com.luckyzyx.luckytool.diagnostics.ObservedFeature
-import com.luckyzyx.luckytool.diagnostics.interceptObserved
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.SharedPreferences
@@ -20,32 +18,29 @@ import org.luckypray.dexkit.DexKitBridge
 class LauncherHighTempreatureProtection(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
     val key = "LauncherHighTempreatureProtection"
     override fun onHook() {
-        val feature = ObservedFeature("remove_battery_temperature_control", true)
-        feature.setup {
-            //Source ThermalHandler high_temperature_shutdown_message / high_temperature_dialog_auto
-            //Key oplus_settings_hightemp_protect 1004
-            dexKitBridge.findClass {
-                matcher {
-                    fields {
-                        addForType(classOf<Int>())
-                        addForType(classOf<Context>())
-                        addForType(classOf<Handler>())
-                        addForType(classOf<PowerManager>())
-                        addForType(classOf<SharedPreferences>())
-                        addForType(classOf<BroadcastReceiver>())
-                    }
-                    methods {
-                        add { name("handleMessage") }
-                        add { paramTypes(classOf<Context>()) }
-                        add { paramTypes(classOf<Int>(), classOf<Int>()) }
-                    }
+        //Source ThermalHandler high_temperature_shutdown_message / high_temperature_dialog_auto
+        //Key oplus_settings_hightemp_protect 1004
+        dexKitBridge.findClass {
+            matcher {
+                fields {
+                    addForType(classOf<Int>())
+                    addForType(classOf<Context>())
+                    addForType(classOf<Handler>())
+                    addForType(classOf<PowerManager>())
+                    addForType(classOf<SharedPreferences>())
+                    addForType(classOf<BroadcastReceiver>())
                 }
-            }.apply {
-                checkDataList("LauncherHighTempreatureProtection")
-                single().name.toClass().resolve().apply {
-                    firstConstructor { parameterCount = 3 }.hook {
-                        interceptObserved(feature)
-                    }
+                methods {
+                    add { name("handleMessage") }
+                    add { paramTypes(classOf<Context>()) }
+                    add { paramTypes(classOf<Int>(), classOf<Int>()) }
+                }
+            }
+        }.apply {
+            checkDataList("LauncherHighTempreatureProtection")
+            single().name.toClass().resolve().apply {
+                firstConstructor { parameterCount = 3 }.hook {
+                    intercept()
                 }
             }
         }

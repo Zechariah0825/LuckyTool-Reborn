@@ -1,7 +1,5 @@
 package com.luckyzyx.luckytool.hook.scopes.systemui
 
-import com.luckyzyx.luckytool.diagnostics.ObservedFeature
-import com.luckyzyx.luckytool.diagnostics.beforeObserved
 import android.app.ActivityManager.RunningTaskInfo
 import android.content.Intent
 import com.highcapable.kavaref.KavaRef.Companion.asResolver
@@ -19,53 +17,50 @@ object RunFloatingWindowTasksInForeground : YukiBaseHooker() {
     private const val TAG = "MirageHangUp"
 
     override fun onHook() {
-        val feature = ObservedFeature("run_floating_window_tasks_in_foreground", true)
-        feature.setup {
-            var flag = -1
-            var status: Boolean
+        var flag = -1
+        var status: Boolean
 
-            //Source ZoomStateManager
-            "com.oplus.zoom.zoomstate.ZoomStateManager".toClass().resolve().apply {
-                firstMethod {
-                    name = "requestChangeZoomTask"
-                    parameters(Int::class, Boolean::class)
-                }.hook {
-                    beforeObserved(feature) {
-                        flag = firstArg().get<Int>() ?: 0
-                        status = lastArg().get<Boolean>() ?: false
+        //Source ZoomStateManager
+        "com.oplus.zoom.zoomstate.ZoomStateManager".toClass().resolve().apply {
+            firstMethod {
+                name = "requestChangeZoomTask"
+                parameters(Int::class, Boolean::class)
+            }.hook {
+                before {
+                    flag = firstArg().get<Int>() ?: 0
+                    status = lastArg().get<Boolean>() ?: false
 
-                        //浮窗全屏 flag 4
-                        //浮窗贴边 flag 5
-                        //浮窗退出 flag 6
+                    //浮窗全屏 flag 4
+                    //浮窗贴边 flag 5
+                    //浮窗退出 flag 6
 
-                        if (flag == 5 && status) {
-                            val mTaskInfo = firstField { name = "mTaskInfo" }.of(instance)
-                                .get<RunningTaskInfo>() ?: return@beforeObserved
+                    if (flag == 5 && status) {
+                        val mTaskInfo = firstField { name = "mTaskInfo" }.of(instance)
+                            .get<RunningTaskInfo>() ?: return@before
 
-                            val baseIntent = mTaskInfo.asResolver().firstField {
-                                type = Intent::class;superclass()
-                            }.get<Intent>() ?: return@beforeObserved
+                        val baseIntent = mTaskInfo.asResolver().firstField {
+                            type = Intent::class;superclass()
+                        }.get<Intent>() ?: return@before
 
-                            val uid = mTaskInfo.asResolver().firstField { name = "uid";superclass() }
-                                .get<Int>() ?: return@beforeObserved
-                            if (uid > 0) baseIntent.putExtra("TASKINFO_UID", uid)
+                        val uid = mTaskInfo.asResolver().firstField { name = "uid";superclass() }
+                            .get<Int>() ?: return@before
+                        if (uid > 0) baseIntent.putExtra("TASKINFO_UID", uid)
 
-                            val displayId = startMirageWindow(baseIntent)
-                            LogUtils.d(TAG, "requestChangeZoomTask", "systemui hang up uid=$uid displayId=$displayId")
-                            result = null
-                        }
+                        val displayId = startMirageWindow(baseIntent)
+                        LogUtils.d(TAG, "requestChangeZoomTask", "systemui hang up uid=$uid displayId=$displayId")
+                        result = null
                     }
                 }
             }
+        }
 
-            //Source FloatHandleController
-            "com.oplus.zoom.ui.floathandle.FloatHandleController".toClass().resolve().apply {
-                firstMethod { name = "onTaskMovedToFront" }.hook {
-                    beforeObserved(feature) {
-                        if (flag != 5) return@beforeObserved
-                        LogUtils.d(TAG, "onTaskMovedToFront", "systemui block onTaskMovedToFront")
-                        result = null
-                    }
+        //Source FloatHandleController
+        "com.oplus.zoom.ui.floathandle.FloatHandleController".toClass().resolve().apply {
+            firstMethod { name = "onTaskMovedToFront" }.hook {
+                before {
+                    if (flag != 5) return@before
+                    LogUtils.d(TAG, "onTaskMovedToFront", "systemui block onTaskMovedToFront")
+                    result = null
                 }
             }
         }

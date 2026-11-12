@@ -9,9 +9,6 @@ import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.extension.kavaref.toClass
 import com.highcapable.yukihookapi.extension.kavaref.toClassOrNull
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
-import com.luckyzyx.luckytool.diagnostics.ObservedFeature
-import com.luckyzyx.luckytool.diagnostics.afterObserved
-import com.luckyzyx.luckytool.diagnostics.beforeObserved
 import com.luckyzyx.luckytool.utils.DexkitUtils.checkDataList
 import org.lsposed.lsparanoid.Obfuscate
 import org.luckypray.dexkit.DexKitBridge
@@ -19,71 +16,66 @@ import org.luckypray.dexkit.DexKitBridge
 @Obfuscate
 class RemoveWelfarePage(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
     override fun onHook() {
-        val feature = ObservedFeature("remove_welfare_page", true)
-        feature.setup {
-            val mainPanelView = "business.mainpanel.MainPanelView".toClassOrNull()
-            if (mainPanelView == null) {
-                "business.mainpanel.main.MainPanelFragment".toClass().resolve().apply {
-                    firstMethod { name = "addRadioButton" }.hook {
-                        before {
-                            if ((firstArg().get<String>() ?: "") == "welfare") {
-                                feature.callback { result = null }
-                            }
-                        }
-                    }
-                    firstMethod { name = "initView" }.hook {
-                        afterObserved(feature) {
-                            firstField { name = "navButtonMap" }.of(instance)
-                                .get<HashMap<String, Any>>()
-                                ?.remove("welfare")
-                        }
+        val mainPanelView = "business.mainpanel.MainPanelView".toClassOrNull()
+        if (mainPanelView == null) {
+            "business.mainpanel.main.MainPanelFragment".toClass().resolve().apply {
+                firstMethod { name = "addRadioButton" }.hook {
+                    before {
+                        if ((firstArg().get<String>() ?: "") == "welfare") result = null
                     }
                 }
-                dexKitBridge.findClass {
-                    matcher {
-                        className("business.mainpanel.view.NavigationRadioButton")
-                    }
-                }.findField {
-                    matcher {
-                        type(classOf<String>())
-                        addReadMethod {
-                            paramTypes(null, classOf<Boolean>(), classOf<Boolean>())
-                            returnType(Void.TYPE)
-                            usingStrings("perf", "tool")
-                        }
-                        declaredClass {
-                            usingStrings("NavigationRadioButton")
-                        }
-                    }
-                }.apply {
-                    checkDataList("RemoveWelfarePage NavigationRadioButton")
-                    single().className.toClass().resolve().apply {
-                        firstMethod {
-                            parameters(VagueType, Boolean::class, Boolean::class)
-                            returnType = Void.TYPE
-                        }.hook {
-                            before {
-                                val type = firstField { name = single().fieldName }.of(instance).get()
-                                if (type == "welfare") feature.callback { instance<View>().isVisible = false }
-                            }
-                        }
+                firstMethod { name = "initView" }.hook {
+                    after {
+                        firstField { name = "navButtonMap" }.of(instance)
+                            .get<HashMap<String, Any>>()
+                            ?.remove("welfare")
                     }
                 }
-                return
             }
-
-            //Source MainPanelView
-            mainPanelView.resolve().apply {
-                firstMethod {
-                    parameters { it[0] == classOf<List<*>>() && it[1] == classOf<Boolean>() }
-                    parameterCount { it in 2..3 }
-                    returnType = Void.TYPE
-                }.hook {
-                    beforeObserved(feature) {
-                        val list = firstArg().get<List<Any>>() ?: emptyList()
-                        val first = list.getOrNull(0) ?: return@beforeObserved
-                        firstArg().set(ArrayList(arrayListOf(first)))
+            dexKitBridge.findClass {
+                matcher {
+                    className("business.mainpanel.view.NavigationRadioButton")
+                }
+            }.findField {
+                matcher {
+                    type(classOf<String>())
+                    addReadMethod {
+                        paramTypes(null, classOf<Boolean>(), classOf<Boolean>())
+                        returnType(Void.TYPE)
+                        usingStrings("perf", "tool")
                     }
+                    declaredClass {
+                        usingStrings("NavigationRadioButton")
+                    }
+                }
+            }.apply {
+                checkDataList("RemoveWelfarePage NavigationRadioButton")
+                single().className.toClass().resolve().apply {
+                    firstMethod {
+                        parameters(VagueType, Boolean::class, Boolean::class)
+                        returnType = Void.TYPE
+                    }.hook {
+                        before {
+                            val type = firstField { name = single().fieldName }.of(instance).get()
+                            if (type == "welfare") instance<View>().isVisible = false
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        //Source MainPanelView
+        mainPanelView.resolve().apply {
+            firstMethod {
+                parameters { it[0] == classOf<List<*>>() && it[1] == classOf<Boolean>() }
+                parameterCount { it in 2..3 }
+                returnType = Void.TYPE
+            }.hook {
+                before {
+                    val list = firstArg().get<List<Any>>() ?: emptyList()
+                    val first = list.getOrNull(0) ?: return@before
+                    firstArg().set(ArrayList(arrayListOf(first)))
                 }
             }
         }

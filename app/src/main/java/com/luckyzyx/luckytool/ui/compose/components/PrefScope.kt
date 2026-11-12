@@ -213,7 +213,6 @@ class PrefScopeBuilder internal constructor(
     internal var sendValue: (key: String, value: Any) -> Unit = { _, _ -> }
     internal var navigate: ((target: String, title: String?) -> Unit)? = null
     internal var context: Context? = null
-    internal var diagnostics by mutableStateOf<HookDiagnosticUi?>(null)
     internal val highlightSlot = mutableStateOf<Int?>(null)
 
     internal val entries = ArrayList<PrefEntry>()
@@ -221,7 +220,6 @@ class PrefScopeBuilder internal constructor(
     /** 每次重建前清空（ScopeScreen 每次重组前调用；外部索引收集同样先调用） */
     fun beginBuild() {
         entries.clear()
-        diagnostics?.let { category("Hook 检测（实验性）", it.moduleSummary) }
     }
 
     /** 当前构建轮次的搜索索引快照 */
@@ -372,7 +370,6 @@ class PrefScopeBuilder internal constructor(
         onChange: ((Boolean) -> Unit)? = null,
     ) = emit(key, key, title, summary) { slot ->
         val checked by state.booleanFlow(key, default).collectAsStateWithLifecycle()
-        val shownSummary = diagnostics?.summary(key, checked, summary) ?: summary
         fun apply(newValue: Boolean) {
             state.set(key, newValue)
             if (notify) sendValue(key, newValue)
@@ -390,7 +387,7 @@ class PrefScopeBuilder internal constructor(
                 title = title,
                 checked = checked,
                 onCheckedChange = onCheckedChange,
-                summary = shownSummary,
+                summary = summary,
                 enabled = enabled,
                 startAction = leading,
             )
@@ -398,7 +395,7 @@ class PrefScopeBuilder internal constructor(
             Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 MaterialSwitchItem(
                     title = title,
-                    summary = shownSummary,
+                    summary = summary,
                     colors = itemColors(slot),
                     checked = checked,
                     enabled = enabled,
@@ -424,8 +421,7 @@ class PrefScopeBuilder internal constructor(
     ) = emit(key, key, title, summary) { slot ->
         val current by state.stringFlow(key, default).collectAsStateWithLifecycle()
         val currentLabel = entries.getOrNull(entryValues.indexOf(current)) ?: current
-        val baseSummary = summary?.replace("%s", currentLabel)
-        val shownSummary = diagnostics?.summary(key, current, baseSummary) ?: baseSummary
+        val shownSummary = summary?.replace("%s", currentLabel)
         if (LocalUiMode.current == UiMode.Miuix) {
             MiuixDropdownItem(
                 title = title,
@@ -846,7 +842,6 @@ fun ScopeScreen(
     revisionState.value
 
     val builder = remember(state) { PrefScopeBuilder(state) }
-    builder.diagnostics = LocalHookDiagnosticUi.current
     builder.sendValue = sendValue
     builder.navigate = onNavigate
     builder.context = LocalContext.current.applicationContext

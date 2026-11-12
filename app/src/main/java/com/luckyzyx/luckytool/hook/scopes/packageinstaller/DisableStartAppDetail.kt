@@ -5,8 +5,6 @@ import com.highcapable.kavaref.extension.classOf
 import com.highcapable.yukihookapi.extension.kavaref.hook
 import com.highcapable.yukihookapi.extension.kavaref.toClass
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
-import com.luckyzyx.luckytool.diagnostics.ObservedFeature
-import com.luckyzyx.luckytool.diagnostics.interceptObserved
 import com.luckyzyx.luckytool.utils.DexkitUtils.checkDataList
 import org.lsposed.lsparanoid.Obfuscate
 import org.luckypray.dexkit.DexKitBridge
@@ -15,33 +13,30 @@ import org.luckypray.dexkit.DexKitBridge
 class DisableStartAppDetail(val dexKitBridge: DexKitBridge) : YukiBaseHooker() {
 
     override fun onHook() {
-        val feature = ObservedFeature("disable_start_app_detail", true)
-        feature.setup {
-            //Source AppDetailRedirectionUtils
-            dexKitBridge.findClass {
+        //Source AppDetailRedirectionUtils
+        dexKitBridge.findClass {
+            matcher {
+                usingStrings("AppDetailRedirectionUtils", "RemoteAppdetailService")
+            }
+        }.apply {
+            checkDataList("AppDetailRedirectionUtils")
+
+            findMethod {
                 matcher {
-                    usingStrings("AppDetailRedirectionUtils", "RemoteAppdetailService")
+//                    paramTypes(Context::class.java, String::class.java)
+                    returnType(classOf<Int>())
+                    usingStrings("count_canceled_by_app_detail", "com.oplus.appdetail")
                 }
             }.apply {
-                checkDataList("AppDetailRedirectionUtils")
+                checkDataList("checkCommon")
 
-                findMethod {
-                    matcher {
-    //                    paramTypes(Context::class.java, String::class.java)
-                        returnType(classOf<Int>())
-                        usingStrings("count_canceled_by_app_detail", "com.oplus.appdetail")
-                    }
-                }.apply {
-                    checkDataList("checkCommon")
-
-                    single().className.toClass().resolve().apply {
-                        firstMethod {
-                            name = single().methodName
-    //                        parameters(Context::class, String::class)
-                            returnType = Int::class
-                        }.hook {
-                            interceptObserved(feature, 9)
-                        }
+                single().className.toClass().resolve().apply {
+                    firstMethod {
+                        name = single().methodName
+//                        parameters(Context::class, String::class)
+                        returnType = Int::class
+                    }.hook {
+                        intercept(9)
                     }
                 }
             }

@@ -296,6 +296,30 @@ class BrowserHomeReplacement(
             tab.resolve().firstMethod { name = routes.returnHome; parameters(Boolean::class); returnType = Void.TYPE }.hook {
                 before {
                     if (explicitWebHome.get() == 0) return@before
+                    // Search+ must remain in the native stack. Returning to native
+                    // Home first rewinds it to index zero and loses this return target.
+                    val preserveSearch = runCatching {
+                        val current = tab.getMethod("getCurrent").invoke(instance)
+                        BrowserSearchHomeRoute.shouldPreserve(current?.javaClass?.name,
+                            tab.getMethod("isActive").invoke(instance) == true, explicitWebHome.get() > 0)
+                    }.getOrElse { error ->
+                        YLog.error("Reborn: Search+ homepage owner unavailable", error)
+                        result = null
+                        return@before
+                    }
+                    if (preserveSearch) {
+                        val url = RebornBrowserConfig.validHttpUrl(configuredUrl) ?: return@before
+                        try {
+                            tab.getMethod("loadUrl", String::class.java).invoke(instance, url)
+                            result = null
+                            return@before
+                        } catch (error: Exception) {
+                            YLog.error("Reborn: Search+ homepage navigation unavailable", error)
+                            // Keep Search+ rather than destructively falling through to Home.
+                            result = null
+                            return@before
+                        }
+                    }
                     val fragment = tab.getMethod("getHomePage").invoke(instance) ?: return@before
                     if (fragment.javaClass.name == "com.heytap.browser.home.NormalHomePageFragment" &&
                         tab.getMethod("isActive").invoke(instance) == true) navigation.requestHome(fragment)

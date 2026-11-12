@@ -1,12 +1,7 @@
 package com.luckyzyx.luckytool.ui.compose.scopes.apps
 
 import android.content.Intent
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.luckyzyx.luckytool.R
 import com.luckyzyx.luckytool.hook.scopes.browser.RebornBrowserConfig as C
 import com.luckyzyx.luckytool.ui.compose.components.PrefRow
@@ -17,7 +12,7 @@ import com.luckyzyx.luckytool.utils.checkPackName
 import com.luckyzyx.luckytool.utils.showToast
 
 /**
- * 浏览器页：广告、窗口数量限制与搜索栏推广的开关，以及简洁模式入口。
+ * 浏览器页：按主页、标签页、搜索、下载和我的页面统一组织功能。
  * 简洁模式入口只在装有 com.heytap.browser 时出现，点击跳浏览器自身的首页设置页。
  */
 object OplusBrowserPage {
@@ -30,6 +25,7 @@ object OplusBrowserPage {
         restartEnabled = true,
     ) {
         val c = requireNotNull(context) { "ScopeScreen 未注入 Context" }
+        category("主页")
         if (c.checkPackName("com.heytap.browser")) {
             custom(title = c.getString(R.string.browser_concise_mode)) {
                 PrefRowInset {
@@ -59,7 +55,6 @@ object OplusBrowserPage {
                 }
             }
         }
-        category("Reborn · 主页")
         list(
             key = C.HOME_MODE,
             title = "主页显示模式",
@@ -89,7 +84,7 @@ object OplusBrowserPage {
             validate = { C.entriesError(it, search = false) },
             notify = true,
         )
-        category("Reborn · 导航及我的")
+        category("导航与标签页")
         switch(
             key = C.HIDE_BOTTOM_TABS,
             title = "移除底部「视频」和「小说」",
@@ -97,12 +92,10 @@ object OplusBrowserPage {
             notify = true,
         )
         switch(
-            key = C.HIDE_MINE_PROMOS,
-            title = "移除「领现金」及「我的小说」区域",
-            summary = "仅处理「我的」中的小说卡片和领现金按钮，保留登录、账户及其他工具",
-            notify = true,
+            key = "remove_browser_window_limit_number",
+            title = c.getString(R.string.remove_browser_window_limit_number),
         )
-        category("Reborn · 搜索页")
+        category("搜索页")
         switch(
             key = "reborn_browser_search_history_only",
             title = "搜索页仅保留搜索历史",
@@ -110,7 +103,11 @@ object OplusBrowserPage {
             default = true,
             notify = true,
         )
-        category("Reborn · 搜索引擎")
+        switch(
+            key = "remove_browser_search_bar_app_promotion",
+            title = c.getString(R.string.remove_browser_search_bar_app_promotion),
+        )
+        category("搜索引擎")
         switch(
             key = C.SEARCH_EXTEND,
             title = "向浏览器原生列表添加 Bing、Google 和自定义引擎",
@@ -183,7 +180,7 @@ object OplusBrowserPage {
             },
             notify = true,
         )
-        category(c.getString(R.string.ads))
+        category("下载")
         switch(
             key = "remove_ads_from_download_dialog",
             title = c.getString(R.string.remove_ads_from_download_dialog),
@@ -192,13 +189,12 @@ object OplusBrowserPage {
             key = "remove_ads_at_download_page_bottom",
             title = c.getString(R.string.remove_ads_at_download_page_bottom),
         )
+        category("我的页面")
         switch(
-            key = "remove_browser_window_limit_number",
-            title = c.getString(R.string.remove_browser_window_limit_number),
-        )
-        switch(
-            key = "remove_browser_search_bar_app_promotion",
-            title = c.getString(R.string.remove_browser_search_bar_app_promotion),
+            key = C.HIDE_MINE_PROMOS,
+            title = "移除「领现金」及「我的小说」区域",
+            summary = "仅处理「我的」中的小说卡片和领现金按钮，保留登录、账户及其他工具",
+            notify = true,
         )
     }
 }
