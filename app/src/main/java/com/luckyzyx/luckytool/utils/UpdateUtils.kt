@@ -33,13 +33,13 @@ import com.drake.net.interfaces.ProgressListener
 import com.drake.net.scope.NetCoroutineScope
 import com.drake.net.utils.scopeNet
 import com.highcapable.betterandroid.ui.extension.view.toast
+import com.luckyzyx.luckytool.BuildConfig
 import com.luckyzyx.luckytool.R
 import com.luckyzyx.luckytool.ui.compose.components.ActionListDialog
 import com.luckyzyx.luckytool.ui.compose.components.ChoiceItem
 import com.luckyzyx.luckytool.ui.theme.LocalUiMode
 import com.luckyzyx.luckytool.ui.theme.UiMode
 import io.noties.markwon.Markwon
-import org.json.JSONArray
 import org.json.JSONObject
 import org.lsposed.lsparanoid.Obfuscate
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -69,29 +69,25 @@ class UpdateUtils(val context: Context, private val isDev: Boolean = false) {
 
     fun checkUpdate(result: (UpdateInfo) -> Unit) {
         scopeNet {
-            val latestUrl =
-                "https://api.github.com/repos/Xposed-Modules-Repo/com.luckyzyx.luckytool/releases/latest"
-            val getJson = Get<String>(latestUrl).await()
-            JSONObject(getJson).apply {
-                val name = optString("name")
-                val code = optString("tag_name").split("-")[0]
-                val changeLog = optString("body")
-                val assets = optJSONArray("assets") ?: JSONArray()
-                val updateTime = optString("published_at").replace("T", " ").replace("Z", "")
-                val firstFile = assets.optJSONObject(0) ?: JSONObject()
-                val fileName = firstFile.optString("name")
-                val downloadUrl = firstFile.optString("browser_download_url")
-                val downloadPage = optString("html_url")
-                val downloadCount = firstFile.optString("download_count")
-                val fileSize = firstFile.optString("size").toFloat()
-
-                result(
-                    UpdateInfo(
-                        name, code.toInt(), changeLog, fileName, downloadUrl,
-                        downloadPage, downloadCount, fileSize, updateTime
-                    )
-                )
-            }
+            val json = JSONObject(Get<String>(RebornReleasePolicy.API).await())
+            val assets = json.optJSONArray("assets")
+            val selected = RebornReleasePolicy.select(
+                json.optString("tag_name"), json.optString("html_url"),
+                json.optBoolean("draft"), json.optBoolean("prerelease"),
+                (0 until (assets?.length() ?: 0)).mapNotNull { index ->
+                    assets?.optJSONObject(index)?.let {
+                        RebornReleasePolicy.Asset(it.optString("name"),
+                            it.optString("browser_download_url"), it.optLong("size", -1),
+                            it.optLong("download_count", -1))
+                    }
+                }
+            ) ?: error("No compatible community APK in latest release")
+            result(UpdateInfo(
+                json.optString("name"), selected.code, json.optString("body"),
+                selected.asset.name, selected.asset.url, json.optString("html_url"),
+                selected.asset.downloads.toString(), selected.asset.size.toFloat(),
+                json.optString("published_at").replace("T", " ").replace("Z", "")
+            ))
         }.catch {
             it.printStackTrace()
             context.showToast(context.getString(R.string.check_update_error))
@@ -119,6 +115,14 @@ class UpdateUtils(val context: Context, private val isDev: Boolean = false) {
     )
 
     fun installApk(apkFile: File) {
+        @Suppress("DEPRECATION")
+        val archive = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+        if (archive == null || !RebornReleasePolicy.installable(
+                archive.packageName, archive.longVersionCode, BuildConfig.VERSION_CODE.toLong()
+            )) {
+            context.showToast("安装包不属于 LuckyTool Reborn 社区版，或不是更新版本")
+            return
+        }
         if (context.packageManager.canRequestPackageInstalls()) {
             val intent = Intent(Intent.ACTION_VIEW)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

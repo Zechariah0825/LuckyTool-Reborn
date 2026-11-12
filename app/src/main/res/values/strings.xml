@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">LuckyTool</string>
+    <string name="app_name" translatable="false">LuckyTool Reborn</string>
+    <string name="reborn_module_description" translatable="false">LuckyTool Reborn · independent enhanced fork of LuckyTool\nUpstream: luckyzyx / 憶清鳴 · github.com/luckyzyx/LuckyTool\nFork: Zechariah0825 · GPL-3.0 · ColorOS Xposed module</string>
     <!-- Application -->
     <string name="xposeddescription">Xposed module for extended optimization of ColorOS, free forever\nIt is forbidden to share, reprint, steal and sell and other illegal purposes\nDeveloper: luckyzyx</string>
     <string name="sharedUserLabel" translatable="false">LuckyTool user</string>

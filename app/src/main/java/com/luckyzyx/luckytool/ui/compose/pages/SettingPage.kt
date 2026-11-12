@@ -75,7 +75,7 @@ import com.luckyzyx.luckytool.utils.PrefState
 import com.luckyzyx.luckytool.utils.PrefsTarget
 import com.luckyzyx.luckytool.utils.SettingsPrefs
 import com.luckyzyx.luckytool.utils.backupAllPrefs
-import com.luckyzyx.luckytool.utils.base64Decode
+import com.luckyzyx.luckytool.utils.PrefsBackupCodec
 import com.luckyzyx.luckytool.utils.base64Encode
 import com.luckyzyx.luckytool.utils.clearAllPrefs
 import com.luckyzyx.luckytool.utils.formatDate
@@ -104,6 +104,7 @@ import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
 @Composable
 fun SettingPage(activity: MainActivity, onOpenTheme: () -> Unit = {}) {
     val context = LocalContext.current
+    val restoreReadError = stringResource(R.string.data_restore_result, 0, 1)
     val settings = remember { PrefState.of(context, SettingsPrefs) }
     // 以 Configuration 作 key：语言切换后 isZh 需要重新求值
     val zh = remember(LocalConfiguration.current) { isZh(context) }
@@ -123,10 +124,15 @@ fun SettingPage(activity: MainActivity, onOpenTheme: () -> Unit = {}) {
         OpenBackupDocument
     ) { uri ->
         if (uri != null) {
-            val entryData = FileUtils.readFromUri(activity, uri)
-            val json = JSONObject(base64Decode(entryData))
-            // 总是先弹对话框展示落点与当前状态，跨版本提示改在对话框里按数据版本比较决定
-            pendingRestoreJson = json
+            runCatching {
+                PrefsBackupCodec.decode(FileUtils.readFromUri(activity, uri))
+            }.onSuccess { json ->
+                // Stable preference names allow backups from the original package to migrate here.
+                pendingRestoreJson = json
+            }.onFailure {
+                LogUtils.e("SettingPage", "restore read", "$it", false)
+                context.showToast(restoreReadError)
+            }
         }
     }
 
@@ -428,6 +434,8 @@ fun SettingPage(activity: MainActivity, onOpenTheme: () -> Unit = {}) {
 
     if (showFeedbackDialog) {
         val feedbackItems = listOf(
+            ChoiceItem(key = "fork_source", title = "LuckyTool Reborn · GitHub"),
+            ChoiceItem(key = "fork_releases", title = "LuckyTool Reborn · Releases"),
             ChoiceItem(key = "coolmarket", title = stringResource(R.string.coolmarket)),
             ChoiceItem(key = "module_doc", title = stringResource(R.string.module_doc)),
             ChoiceItem(key = "qq_chat_group", title = stringResource(R.string.qq_chat_group)),
@@ -444,6 +452,8 @@ fun SettingPage(activity: MainActivity, onOpenTheme: () -> Unit = {}) {
                 // 先关再打开链接，保持原实现里 showFeedbackDialog = false 在路由之前的顺序
                 showFeedbackDialog = false
                 when (item.key) {
+                    "fork_source" -> context.openUrl("https://github.com/Zechariah0825/LuckyTool-Reborn")
+                    "fork_releases" -> context.openUrl("https://github.com/Zechariah0825/LuckyTool-Reborn/releases")
                     "coolmarket" -> context.openUrl("coolmarket://u/1930284")
                     "module_doc" -> context.openUrl("https://luckyzyx.gitlab.io/LuckyTool_Doc")
                     "qq_chat_group" -> context.openUrl(
@@ -453,7 +463,7 @@ fun SettingPage(activity: MainActivity, onOpenTheme: () -> Unit = {}) {
                     "qq_channel" -> context.openUrl("https://pd.qq.com/s/ahjm4zyxb")
                     "telegram_channel" -> context.openUrl("https://t.me/LuckyTool")
                     "lsposed_repo" -> context.openUrl(
-                        "https://modules.lsposed.org/module/com.luckyzyx.luckytool"
+                        "https://modules.lsposed.org/module/io.github.zechariah0825.luckytoolreborn"
                     )
                 }
             },
@@ -661,6 +671,7 @@ private fun writeBackupData(context: Context, uri: Uri) {
     val dataMapList = context.backupAllPrefs(*BackupPrefs.toTypedArray())
     dataMapList.keys.forEach { prefs ->
         val jsons = JSONObject()
+        val types = JSONObject()
         dataMapList[prefs]?.keys?.forEach { key ->
             val value = dataMapList[prefs]?.get(key)
             // 集合值一律写 JSONArray（不能只认 HashSet）：JSONObject.put 会把其它集合实现
@@ -682,6 +693,7 @@ private fun writeBackupData(context: Context, uri: Uri) {
 
                     else -> error("${value.javaClass.name} is not JSON-safe")
                 }
+                PrefsBackupCodec.numericType(value)?.let { types.put(key, it) }
             } catch (t: Throwable) {
                 LogUtils.e("SettingPage", "backup skip $key", "$t", false)
             }
@@ -689,6 +701,7 @@ private fun writeBackupData(context: Context, uri: Uri) {
         json.put(prefs, JSONObject().apply {
             put("target", context.prefsTarget(prefs).key)
             put("data", jsons)
+            put("types", types)
         })
     }
     val str = base64Encode(json.toString())
@@ -727,12 +740,11 @@ private fun backupSavedPath(context: Context, uri: Uri): String {
  */
 private fun writeRestoreData(context: Context, json: JSONObject) {
     if (json.length() <= 0) return
-    json.remove("osCode")
     var success = 0
     var failed = 0
     var remoteUnwritable = 0
     val failedKeys = ArrayList<String>()
-    json.keys().forEach { prefsName ->
+    BackupPrefs.forEach { prefsName ->
         val prefsDatas = json.prefsData(prefsName) ?: return@forEach
         if (prefsDatas.length() <= 0) return@forEach
         // 旧备份没记 target：退回当前落点（[prefsTarget] 解析），保证这些键仍写到该去的那份 prefs
@@ -754,29 +766,14 @@ private fun writeRestoreData(context: Context, json: JSONObject) {
             val value = prefsDatas.get(key)
             try {
                 val editor = prefs.edit()
-                when (value.javaClass.simpleName) {
-                    "Boolean" -> editor.putBoolean(key, value as Boolean)
-                    "Integer" -> editor.putInt(key, value as Int)
-                    "JSONArray" -> {
-                        // 集合一律写成 java.util.HashSet：remote 侧按 Serializable 反序列化，
-                        // Kotlin 单例集合与 androidx 集合解析不到会让整次更新失败
-                        val set = HashSet<String>()
-                        val list = value as JSONArray
-                        for (i in 0 until list.length()) set.add(list[i] as String)
-                        editor.putStringSet(key, set)
-                    }
-
-                    "String" -> editor.putString(key, value as String)
-                    else -> error("${value.javaClass.simpleName} is not restorable")
-                }
+                PrefsBackupCodec.put(editor, key, value, PrefsBackupCodec.recordedType(json, prefsName, key))
                 if (!editor.commit()) error("write failed")
                 success++
             } catch (t: Throwable) {
-                // 恢复不了的值：记录日志、跳过，并把该键从目标 prefs 移除，不让坏数据留在设备上
+                // Invalid backup values are skipped without erasing the current setting.
                 failed++
                 failedKeys.add("$prefsName/$key")
                 LogUtils.e("SettingPage", "restore skip $prefsName/$key", "$t", false)
-                runCatching { prefs.edit().remove(key).commit() }
             }
         }
     }
@@ -799,7 +796,7 @@ private fun writeRestoreData(context: Context, json: JSONObject) {
 }
 
 /** 备份/恢复涉及的四个 prefs 文件，顺序即 JSON 里的顺序 */
-private val BackupPrefs = listOf(ModulePrefs, IntentPrefs, SettingsPrefs, OtherPrefs)
+private val BackupPrefs = PrefsBackupCodec.preferenceNames
 
 /** 备份目录（外部存储相对路径）：只用来预设文件选择器打开的位置，真实落点由用户在选择器里确认 */
 private const val DOWNLOAD_TOOL_DIR = "Download/LuckyTool"

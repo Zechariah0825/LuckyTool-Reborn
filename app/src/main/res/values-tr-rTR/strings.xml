@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">LuckyTool</string>
+    <string name="app_name" translatable="false">LuckyTool Reborn</string>
     <!-- Application -->
     <string name="xposeddescription">ColorOS için gelişmiş optimizasyon sağlayan Xposed modülü, sonsuza dek ücretsiz.\nPaylaşmak, kopyalamak, çalmak ve satmak başta olmak üzere yasadışı kullanımlar yasaktır.\nGeliştirici: luckyzyx</string>
     <string name="sharedUserLabel" translatable="false">LuckyTool user</string>

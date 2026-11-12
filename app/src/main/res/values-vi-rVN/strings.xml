@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">LuckyTool</string>								   
+    <string name="app_name" translatable="false">LuckyTool Reborn</string>
     <!-- Application -->
     <string name="xposeddescription">Module Xposed cho tiện ích mở rộng và tối ưu hóa ColorOS, miễn phí vĩnh viễn\nCấm chia sẻ, sao chép, ăn cắp và các mục đích sử dụng bất hợp pháp khác\nNhà phát triển: Yiqingming, luckyzyx</string>
     <string name="sharedUserLabel" translatable="false">Nguời dùng LuckyTool</string>
