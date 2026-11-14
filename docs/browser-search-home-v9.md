@@ -1,5 +1,12 @@
 # Search+ Home round trip and Google icon
 
+> Superseded by [v0.11 native Dock Search+ routing](browser-search-home-v11.md).
+> `MultiSearchPage` is not the Dock Search+ child. The earlier assertion below
+> that direct loading “keeps Search+ as the previous native page” was not proved
+> through the complete native load strategy and is not a current guarantee.
+> The historical analysis is retained for context; v0.11 removes that shortcut.
+
+
 ## Failure and change
 
 The user supplied two screenshots: the Search+ provider row has a blue letter

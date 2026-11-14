@@ -80,7 +80,7 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
             view.visibility = View.GONE
             return
         }
-        if (hideMine && BrowserMineRules.isAccountInfo(view.javaClass.name)) {
+        if (hideMine && BrowserProfileViews.isRewardInfo(view)) {
             BrowserProfileViews.cleanAccountInfo(view)
         }
         if (view is TextView) output.add(view)
@@ -159,22 +159,59 @@ class BrowserUiCleanup(private val hideMine: Boolean, private val hideBottom: Bo
         } catch (error: Throwable) {
             YLog.error("Reborn: profile attachment hook mismatch", error)
         }
-        // The inflated CustomSignInAccountInfoView inherits these setters (or
-        // calls super). Hook the declaring class and clean the actual subclass.
-        val infoClass = BrowserMineRules.ACCOUNT_INFO_BASE.toClassOrNull()
-        listOf("setSignBtnText", "setShowSignButton").forEach { method ->
+        hookRewardBinding()
+    }
+
+    private fun hookRewardBinding() {
+        val base = BrowserMineRules.ACCOUNT_INFO_BASE.toClassOrNull() ?: return
+        val model = "com.platform.sdk.center.sdk.mvvm.model.data.AcInfo".toClassOrNull() ?: return
+        val buttonModel = "com.platform.sdk.center.sdk.mvvm.model.data.AcInfo\$ButtonInfo".toClassOrNull() ?: return
+        fun bind(name: String, types: Array<Class<*>>, beforeFilter: (View, Array<Any?>) -> Unit = { _, _ -> }) {
             try {
-                infoClass?.resolve()?.firstMethod {
-                    name = method
-                    if (method == "setSignBtnText") parameters(String::class, Boolean::class)
-                    else parameters(Boolean::class)
-                }?.hook {
-                    after {
-                        (instance as? View)?.let(BrowserProfileViews::cleanAccountInfo)
+                base.resolve().firstMethod { this.name = name; parameters(*types); returnType = Void.TYPE }.hook {
+                    before { (instance as? View)?.let { beforeFilter(it, args) } }
+                    after { (instance as? View)?.let(BrowserProfileViews::cleanAccountInfo) }
+                }
+            } catch (error: Throwable) {
+                YLog.error("Reborn: profile reward binding mismatch: $name", error)
+            }
+        }
+        bind("setButton", arrayOf(android.content.Context::class.java, buttonModel, Boolean::class.java, String::class.java),
+            BrowserProfileViews::filterButtonBinding)
+        bind("setSignBtnText", arrayOf(String::class.java, Boolean::class.java), BrowserProfileViews::filterSignText)
+        bind("setShowSignButton", arrayOf(Boolean::class.java)) { info, args ->
+            if (BrowserProfileViews.isRewardInfo(info) && BrowserProfileViews.isLoggedIn(info) == true) args[0] = false
+        }
+        bind("setThirdSignBtn", arrayOf(Int::class.java, Int::class.java, Int::class.java, String::class.java)) { info, args ->
+            if (BrowserProfileViews.isRewardInfo(info)) args[3] = null
+        }
+        bind("setAccountInfo", arrayOf(android.content.Context::class.java, model, Boolean::class.java, String::class.java))
+        bind("setUnLoginAccountInfo", arrayOf(android.content.Context::class.java, model, String::class.java))
+
+        // Clear the browser's alternate source, not only the currently displayed
+        // remote title. Otherwise the fallback reward reappears after a refresh.
+        val card = BrowserMineRules.ACCOUNT_CARD_BASE.toClassOrNull() ?: return
+        listOf("setSignInBtn", "setSignInBtnText", "applyPendingThirdSignBtnConfig").forEach { name ->
+            try {
+                card.resolve().firstMethod {
+                    this.name = name
+                    when (name) {
+                        "setSignInBtn" -> parameters(Int::class, Int::class, Int::class, String::class)
+                        "setSignInBtnText" -> parameters(String::class)
+                        else -> parameters()
+                    }
+                    returnType = Void.TYPE
+                }.hook {
+                    before {
+                        val view = instance as? View ?: return@before
+                        if (BrowserProfileViews.rewardCard(view) !== view) return@before
+                        BrowserProfileViews.clearThirdSource(view)
+                        if (name == "setSignInBtn") args[3] = null
+                        if (name == "setSignInBtnText") args[0] = null
                     }
                 }
             } catch (error: Throwable) {
-                YLog.error("Reborn: profile cash setter hook mismatch: $method", error)
+                YLog.error("Reborn: profile reward source mismatch: $name", error)
             }
         }
     }

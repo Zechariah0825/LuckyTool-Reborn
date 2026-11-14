@@ -23,7 +23,7 @@ The APK and its metadata are written to `app/build/outputs/apk/debug/`. Tests an
 Version codes are read without modifying `app/version.properties`. Optional overrides are explicit:
 
 ```sh
-bash ./gradlew :app:assembleDebug -PrebornVersionCode=23304 -PrebornVersionName=1.3.5_reborn.3
+bash ./gradlew :app:assembleDebug -PrebornVersionCode=23312 -PrebornVersionName=1.3.5_reborn.11
 ```
 
 ## Constrained-memory local validation
@@ -53,9 +53,9 @@ A checked-in workflow is not evidence of a successful run. Verify the run's exac
 
 ## Signing and installation
 
-Ordinary debug builds use the Android Gradle Plugin's normal local debug key; no private signing material is committed. The delivered v0.8 artifact instead explicitly selects a private, backed-up signing key through external build configuration. Its certificate is not compatible with the delivered v0.7 or official LuckyTool. A new machine or CI runner without that explicit configuration may create a different debug key, so artifacts from separate runs are not guaranteed to support in-place upgrades.
+Ordinary debug builds use the Android Gradle Plugin's normal local debug key; no private signing material is committed. Delivered community artifacts from v0.8 onward instead explicitly select the same private, backed-up signing key through external build configuration. Its certificate is not compatible with the delivered v0.7 or official LuckyTool. A new machine or CI runner without that explicit configuration may create a different debug key, so artifacts from separate runs are not guaranteed to support in-place upgrades.
 
-The application ID remains `com.luckyzyx.luckytool`. Do not assume a debug build can replace the official app. Back up settings first and test on a suitable device. Keep any intended long-term signing key private and use it consistently for updates.
+The installed application ID is `io.github.zechariah0825.luckytoolreborn` from v0.10 onward. The source namespace still uses `com.luckyzyx.luckytool`; do not change it merely to match the installed identity. Preserve the private v0.8/v0.9/v0.10 signing key for subsequent community updates. A default debug build without that key cannot replace the delivered community APK. See `COMMUNITY_MIGRATION.md` before moving from an old-package version, and never enable both modules for the same targets.
 
 Custom release signing is optional through untracked `keystore/keystore.properties`. Consult `build.gradle.kts` and `app/build.gradle.kts` for the accepted keys. Do not commit signing keys, passwords, `local.properties`, Gradle caches, or generated APKs.
 
@@ -63,8 +63,12 @@ Custom release signing is optional through untracked `keystore/keystore.properti
 
 Compilation, unit tests, and lint do not establish Android 17 / ColorOS 17 runtime compatibility. Device tests must cover the actual ROM, LSPosed version, enabled scopes, reboot/recovery behavior, and individual hooks.
 
+## Current v0.11 local result
+
+The 2026-11-14 build passed compilation, all 367 unit tests (60 suites, no failures/errors/skips), and signed APK verification. Full lint did not pass: 406 existing `MissingTranslation` errors, 710 warnings and 34 hints. The APK retains the v0.10 application ID and signing certificate. Package, Xposed entry, ZIP CRC and 16 KiB ZIP/ELF checks passed. No phone validation or GitHub Actions success is claimed. See `VALIDATION_REBORN_11.md`.
+
 ## Historical v0.3 local result
 
-For the current browser/Market implementation and results, see `VALIDATION_REBORN_8.md`. The following records the earlier base build.
+For the current browser/Market implementation and results, see `VALIDATION_REBORN_11.md`. The following records the earlier base build.
 
 The modified project produced a debug APK locally. All 196 unit tests across 34 suites passed. Full lint failed with 414 errors, 559 warnings, and 8 informational findings. The six error-bearing files are unchanged from the supplied source archive; no blanket suppression or baseline was added. See `VALIDATION.md` for categories, commands, artifact hashes, and verification limits. These results do not imply a successful GitHub Actions run or a device test.

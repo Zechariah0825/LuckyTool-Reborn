@@ -29,6 +29,10 @@ internal class BrowserHomeBoundary {
         return true
     }
 
+    fun forget(home: Any) {
+        roots.removeAll { it.first.get() == null || it.first.get() === home }
+    }
+
     fun isRoot(home: Any, page: Any, pageIndex: Int, active: Boolean): Boolean =
         active && pageIndex == 1 && roots.any { it.first.get() === home && it.second.get() === page }
 }

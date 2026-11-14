@@ -1,46 +1,93 @@
 package com.luckyzyx.luckytool.hook.scopes.browser
 
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 
-/** Operates only on the two SDK sign-button fields, never the account card itself. */
+/** Native account-role cleanup. Button captions and localized resources are never selectors. */
 internal object BrowserProfileViews {
     fun isInProfile(view: View): Boolean = ancestors(view).any {
         BrowserMineRules.isProfile(it.javaClass.name)
     }
 
-    fun cleanAccountInfo(info: View) {
-        if (!BrowserMineRules.isAccountInfo(info.javaClass.name) || !isInProfile(info)) return
-        // CustomSignInVipCard inflates CustomSignInAccountInfoView. Its two
-        // button fields are declared by HeyTapAccountInfoView, not the subclass.
-        val fieldOwner = generateSequence<Class<*>>(info.javaClass) { it.superclass }
-            .firstOrNull { it.name == BrowserMineRules.ACCOUNT_INFO_BASE } ?: return
-        val reward = runCatching {
-            val id = info.resources.getIdentifier("receive_reward", "string", "com.heytap.browser")
-            if (id == 0) null else info.resources.getString(id)
-        }.getOrNull()
-        val candidates = listOf("mImageBtnSignIn", "mBtnSignIn").mapNotNull { fieldName ->
-            runCatching {
-                fieldOwner.getDeclaredField(fieldName).let {
-                    it.isAccessible = true
-                    it.get(info) as? View
-                }
-            }.getOrNull()
+    private fun owner(value: Any, name: String): Class<*>? =
+        generateSequence<Class<*>>(value.javaClass) { it.superclass }.firstOrNull { it.name == name }
+
+    private fun read(value: Any, declaring: String, field: String): Any? = runCatching {
+        owner(value, declaring)?.getDeclaredField(field)?.let { it.isAccessible = true; it.get(value) }
+    }.getOrNull()
+
+    fun rewardCard(view: View): View? {
+        if (!isInProfile(view)) return null
+        return ancestors(view).firstOrNull { candidate ->
+            generateSequence<Class<*>>(candidate.javaClass) { it.superclass }
+                .any { BrowserMineRules.isAccountCard(it.name) } &&
+                owner(candidate, BrowserMineRules.ACCOUNT_CARD_BASE) != null
         }
-        // The shipped APK obfuscates resource entry names. Use the verified SDK
-        // fields instead of guessed names, numeric IDs or arbitrary cash text.
-        hideCashButtons(info, candidates.distinct(), reward)
     }
 
-    internal fun hideCashButtons(info: View, candidates: List<View>, reward: String?) {
-        candidates.filterIsInstance<TextView>().forEach { button ->
-            // Inspect both controls, including the hidden first alternative. A cached
-            // login or remote title is not evidence that this visible control is cash.
-            if (ancestors(button).any { it === info } &&
-                BrowserMineRules.isCashLabel(button.text?.toString(), reward)
-            ) {
-                if (button.visibility != View.GONE) button.visibility = View.GONE
+    fun isRewardInfo(info: View): Boolean =
+        (info.javaClass.name == BrowserMineRules.ACCOUNT_INFO_BASE ||
+            owner(info, BrowserMineRules.ACCOUNT_INFO_CUSTOM) != null) &&
+            owner(info, BrowserMineRules.ACCOUNT_INFO_BASE) != null && rewardCard(info)?.let {
+                read(it, BrowserMineRules.ACCOUNT_CARD_BASE, "mAccountInfoView") === info
+            } == true
+
+    fun isLoggedIn(info: View): Boolean? = rewardCard(info)?.let {
+        read(it, BrowserMineRules.ACCOUNT_CARD_BASE, "mIsLogin") as? Boolean
+    }
+
+    /** setButton(Context, ButtonInfo, isLogin, thirdText): retain the native login branch. */
+    fun filterButtonBinding(info: View, args: Array<Any?>) {
+        if (!isRewardInfo(info) || args.size != 4 || args[2] !is Boolean) return
+        args[1] = null
+        args[3] = null
+        clearThirdSource(rewardCard(info) ?: return)
+    }
+
+    /** SDK true means a remote ButtonInfo caption, not login. False can mean either. */
+    fun filterSignText(info: View, args: Array<Any?>) {
+        if (!isRewardInfo(info) || args.size != 2) return
+        if (args[1] == true || isLoggedIn(info) == true) args[0] = null
+    }
+
+    fun clearThirdSource(card: View) {
+        if (rewardCard(card) !== card) return
+        runCatching {
+            owner(card, BrowserMineRules.ACCOUNT_CARD_BASE)?.getDeclaredField("mThirdBtnText")?.let {
+                it.isAccessible = true
+                it.set(card, null)
+            }
+        }
+    }
+
+    fun cleanAccountInfo(info: View) {
+        if (!isRewardInfo(info)) return
+        val card = rewardCard(info) ?: return
+        val loggedIn = isLoggedIn(info) ?: return // unknown SDK state must not hide login
+        clearThirdSource(card)
+        val controls = listOf("mImageBtnSignIn", "mBtnSignIn").mapNotNull {
+            read(info, BrowserMineRules.ACCOUNT_INFO_BASE, it) as? View
+        }.distinct().filter { button -> button !== info && ancestors(button).any { it === info } }
+        if (loggedIn) {
+            // In this native state both alternatives are remote/third-party actions.
+            controls.forEach { if (it.visibility != View.GONE) it.visibility = View.GONE }
+        } else {
+            // An account response can bind before attachment. The native remote-tag
+            // identifies that case without inspecting its caption. Rebind just the
+            // button with no remote/third payload, restoring SDK's real login action.
+            val image = read(info, BrowserMineRules.ACCOUNT_INFO_BASE, "mImageBtnSignIn") as? View
+            if (image in controls && image?.tag == true) {
+                runCatching {
+                    val base = owner(info, BrowserMineRules.ACCOUNT_INFO_BASE) ?: return@runCatching
+                    val model = Class.forName(
+                        "com.platform.sdk.center.sdk.mvvm.model.data.AcInfo\$ButtonInfo", false, info.javaClass.classLoader)
+                    base.getDeclaredMethod("setButton", Context::class.java, model,
+                        Boolean::class.javaPrimitiveType, String::class.java).let {
+                        it.isAccessible = true
+                        it.invoke(info, info.context, null, false, null)
+                    }
+                }
             }
         }
     }
@@ -54,7 +101,7 @@ internal object BrowserProfileViews {
                     if (view.visibility != View.GONE) view.visibility = View.GONE
                     return
                 }
-                BrowserMineRules.isAccountInfo(view.javaClass.name) -> cleanAccountInfo(view)
+                isRewardInfo(view) -> cleanAccountInfo(view)
             }
             if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index), depth + 1)
         }

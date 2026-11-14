@@ -18,12 +18,4 @@ class BrowserMineRulesTest {
         assertFalse(BrowserMineRules.isAccountCard("android.widget.TextView"))
     }
 
-    @Test fun `reward text is recognized without hiding a login control`() {
-        assertTrue(BrowserMineRules.isCashLabel(" 领现金 ", null))
-        assertTrue(BrowserMineRules.isCashLabel("Collect reward", "Collect reward"))
-        assertFalse(BrowserMineRules.isCashLabel("登录", "领现金"))
-        assertFalse(BrowserMineRules.isCashLabel("Sign in", "Collect reward"))
-        assertFalse(BrowserMineRules.isCashLabel("", ""))
-        assertFalse(BrowserMineRules.isCashLabel(null, null))
-    }
 }

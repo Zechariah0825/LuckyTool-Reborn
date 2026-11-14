@@ -37,9 +37,13 @@ class BrowserHomeReplacement(
 ) : YukiBaseHooker() {
     private val navigation = BrowserHomeRouteGate()
     private val boundary = BrowserHomeBoundary()
+    private val searchReturn = BrowserSearchHomeRoute()
+    private lateinit var nativeHomeRoutes: BrowserHomeNativeRoutes
+    private lateinit var searchRoutes: BrowserHomeSearchRoutes
     private val dispatching = ThreadLocal<BrowserHomeBoundary.Request?>()
     private val loading = ThreadLocal.withInitial { mutableListOf<BrowserHomeBoundary.Request?>() }
     private val fragments = WeakHashMap<Any, WeakReference<Any>>()
+    private val nativeHomeBack = ThreadLocal.withInitial { 0 }
     private val explicitWebHome = ThreadLocal.withInitial { 0 }
     private val pendingRecovery = WeakHashMap<Any, Long>()
     private val subpageChanges = WeakHashMap<Any, Boolean>()
@@ -77,6 +81,14 @@ class BrowserHomeReplacement(
                 val params = "com.heytap.browser.platform.load.LoadParams".toClassOrNull() ?: error("LoadParams unavailable")
                 val controller = "com.heytap.browser.tab.NavigationController".toClassOrNull() ?: error("NavigationController unavailable")
                 check(backRoutes.matches(tab, page, params, controller)) { "Browser Home boundary signature mismatch" }
+                val normalHome = "com.heytap.browser.main.home.normal.NormalHome".toClassOrNull()
+                    ?: error("NormalHome unavailable")
+                searchRoutes = BrowserHomeSearchRoutes.select(info.versionName, info.longVersionCode, create.name)
+                    ?: error("Browser Dock Search+ routing version unverified")
+                val direct = searchRoutes.directPageClass.toClassOrNull() ?: error("DirectHomePage unavailable")
+                check(searchRoutes.matches(normalHome, direct)) { "Browser Dock Search+ signature mismatch" }
+                nativeHomeRoutes = routes
+                hookSearchBackFallback(normalHome)
                 hookHomeBoundary(backRoutes, tab, params, controller)
                 hookNativeTabRoutes(routes)
                 hookExplicitHomeClick()
@@ -203,9 +215,9 @@ class BrowserHomeReplacement(
 
     /**
      * Native L/M (reference M/N) consumes the WebView's own history first.
-     * At our first web page only, return the same false as native index zero.
-     * The native caller then performs G/H -> onHardBackNotHandle, retaining its
-     * own exit prompt/background policy. No synthetic Back, reload or stack edit.
+     * At our identity-owned first web page only, consume Back and restore the
+     * native Dock Search+ child after Home activation. Other page-stack and exit
+     * paths stay native. No synthetic Back, URL reload or stack deletion.
      */
     private fun hookHomeBoundary(
         routes: BrowserHomeBackRoutes, tab: Class<*>, params: Class<*>, controller: Class<*>,
@@ -274,11 +286,81 @@ class BrowserHomeReplacement(
                 val current = tab.getMethod("getCurrent").invoke(instance) ?: return@before
                 if (boundary.isRoot(home, current, index(instance) ?: -1,
                         tab.getMethod("isActive").invoke(instance) == true)) {
-                    result = false
+                    // M/N runs only after the webpage's own history has declined Back.
+                    // Consume this one owned root transition, never request native exit.
+                    result = true
+                    returnToSearch(instance, home)
                 }
             }
         }
         YLog.info("Reborn: custom Home Back boundary configured (${routes.backwardPage})")
+    }
+
+    /** Native returnHome(false) finishes pager selection synchronously in both verified APKs.
+     * Select the child only afterwards: Home activation reapplies HomeInfo and would
+     * overwrite a premature selection. No posted selector can act on a later tab.
+     */
+    private fun returnToSearch(tab: Any, fragment: Any) {
+        // Retry controls can outlive a shared HomeFrame ownership change.
+        if (tab.javaClass.getMethod("isActive").invoke(tab) != true) return
+        val current = tab.javaClass.getMethod("getCurrent").invoke(tab) ?: return
+        if (current !== fragment) {
+            val controller = readFieldOfType(tab, "com.heytap.browser.tab.NavigationController") ?: return
+            val index = controller.javaClass.getMethod("E").invoke(controller) as? Int ?: return
+            if (!boundary.isRoot(fragment, current, index, true)) return
+        }
+        navigation.invalidate(fragment)
+        navigation.failedDispatch(fragment, navigation.ticket(fragment))
+        try {
+            val success = searchReturn.restore(tab, fragment, {
+                tab.javaClass.getMethod(nativeHomeRoutes.returnHome, Boolean::class.javaPrimitiveType!!).invoke(tab, false)
+            }, {
+                tab.javaClass.getMethod("isActive").invoke(tab) == true &&
+                    tab.javaClass.getMethod("getCurrent").invoke(tab) === fragment
+            }, {
+                val home = readFieldOfType(fragment, "com.heytap.browser.main.home.a")
+                home != null && fragments[home]?.get() === fragment &&
+                    home.javaClass.getMethod(searchRoutes.selectSearch, Boolean::class.javaPrimitiveType!!).invoke(home, false) == true &&
+                    isSearchSelected(home)
+            })
+            if (success) boundary.forget(fragment)
+            else YLog.info("Reborn: native Search+ return did not commit; retry retained")
+        } catch (error: Exception) {
+            YLog.error("Reborn: native Search+ return failed; retry retained", error)
+        }
+        bindFragment(fragment)
+    }
+
+    private fun isSearchSelected(home: Any): Boolean {
+        val selected = readFieldOfType(home, "com.heytap.browser.main.home.normal.a") ?: return false
+        return selected.javaClass.name == searchRoutes.directPageClass &&
+            selected.javaClass.getMethod("getType").invoke(selected) == 7 &&
+            home.javaClass.getMethod(searchRoutes.isSearch).invoke(home) == true
+    }
+
+    private fun hookSearchBackFallback(normalHome: Class<*>) {
+        // Native R1 handles keyboard, overlays and DirectHomePage.onBackPressed first.
+        // Only its terminal switch-to-Major fallback is changed for our restored child.
+        normalHome.resolve().firstMethod {
+            name = "onBackPressed"; parameters(); returnType = Boolean::class.javaPrimitiveType!!
+        }.hook {
+            before { nativeHomeBack.set(nativeHomeBack.get() + 1) }
+            after { nativeHomeBack.set((nativeHomeBack.get() - 1).coerceAtLeast(0)) }
+        }
+        normalHome.resolve().firstMethod {
+            name = searchRoutes.backToMajor; parameters(); returnType = Boolean::class.javaPrimitiveType!!
+        }.hook {
+            before {
+                if (nativeHomeBack.get() == 0) return@before
+                val fragment = fragments[instance]?.get() ?: return@before
+                val owner = ownerTab(fragment) ?: return@before
+                if (searchReturn.phase(owner, fragment) == BrowserSearchHomeRoute.Phase.SEARCH &&
+                    owner.javaClass.getMethod("isActive").invoke(owner) == true &&
+                    owner.javaClass.getMethod("getCurrent").invoke(owner) === fragment && isSearchSelected(instance)) {
+                    result = false
+                }
+            }
+        }
     }
 
     private fun isSelectedHome(fragment: Any): Boolean {
@@ -296,33 +378,12 @@ class BrowserHomeReplacement(
             tab.resolve().firstMethod { name = routes.returnHome; parameters(Boolean::class); returnType = Void.TYPE }.hook {
                 before {
                     if (explicitWebHome.get() == 0) return@before
-                    // Search+ must remain in the native stack. Returning to native
-                    // Home first rewinds it to index zero and loses this return target.
-                    val preserveSearch = runCatching {
-                        val current = tab.getMethod("getCurrent").invoke(instance)
-                        BrowserSearchHomeRoute.shouldPreserve(current?.javaClass?.name,
-                            tab.getMethod("isActive").invoke(instance) == true, explicitWebHome.get() > 0)
-                    }.getOrElse { error ->
-                        YLog.error("Reborn: Search+ homepage owner unavailable", error)
-                        result = null
-                        return@before
-                    }
-                    if (preserveSearch) {
-                        val url = RebornBrowserConfig.validHttpUrl(configuredUrl) ?: return@before
-                        try {
-                            tab.getMethod("loadUrl", String::class.java).invoke(instance, url)
-                            result = null
-                            return@before
-                        } catch (error: Exception) {
-                            YLog.error("Reborn: Search+ homepage navigation unavailable", error)
-                            // Keep Search+ rather than destructively falling through to Home.
-                            result = null
-                            return@before
-                        }
-                    }
                     val fragment = tab.getMethod("getHomePage").invoke(instance) ?: return@before
                     if (fragment.javaClass.name == "com.heytap.browser.home.NormalHomePageFragment" &&
-                        tab.getMethod("isActive").invoke(instance) == true) navigation.requestHome(fragment)
+                        tab.getMethod("isActive").invoke(instance) == true) {
+                        searchReturn.cancel(fragment)
+                        navigation.requestHome(fragment)
+                    }
                 }
                 after {
                     val fragment = tab.getMethod("getHomePage").invoke(instance) ?: return@after
@@ -374,13 +435,19 @@ class BrowserHomeReplacement(
                         val fragment = fragments[home]?.get() ?: return@after
                         val selected = readFieldOfType(home, "com.heytap.browser.main.home.normal.a")
                         val major = readFieldOfType(home, "com.heytap.browser.main.home.normal.major.MajorHomePage")
+                        val owner = ownerTab(fragment) ?: return@after
+                        if (searchReturn.childChanged(owner, fragment, isSearchSelected(home), selected === major)) {
+                            navigation.invalidate(fragment)
+                            return@after
+                        }
                         if (selected !== major || major == null) {
                             navigation.invalidate(fragment)
                             return@after
                         }
-                        val owner = ownerTab(fragment) ?: return@after
                         if (owner.javaClass.getMethod("isActive").invoke(owner) != true ||
                             owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return@after
+                        // A native Back fallback is not an explicit Home tap.
+                        if (searchReturn.phase(owner, fragment) != null) return@after
                         navigation.rearm(fragment)
                         val view = major.javaClass.getMethod("getView").invoke(major) as? View ?: return@after
                         queueUrlHome(fragment, home, major, view)
@@ -413,6 +480,7 @@ class BrowserHomeReplacement(
                         val owner = ownerTab(fragment) ?: return@before
                         if (owner.javaClass.getMethod("isActive").invoke(owner) == true &&
                             owner.javaClass.getMethod("getCurrent").invoke(owner) === fragment) {
+                            searchReturn.cancel(fragment)
                             navigation.requestHome(fragment)
                         }
                     } catch (error: Exception) {
@@ -460,7 +528,8 @@ class BrowserHomeReplacement(
                 // Never uncover the native news anchor, including canceled
                 // permission, a failed dispatch, or an unusual return path.
                 content.show(root, replacement, false)
-                (replacement as? UrlHomePanel)?.showRecovery(recovering)
+                val returningSearch = host?.let { ownerTab(it)?.let { tab -> searchReturn.phase(tab, it) != null } } == true
+                (replacement as? UrlHomePanel)?.showRecovery(recovering, returningSearch)
                 val page = weakMajor.get()
                 if (!recovering && mode == RebornBrowserConfig.URL && host != null && activeHome != null && page != null) {
                     val current = runCatching {
@@ -514,7 +583,7 @@ class BrowserHomeReplacement(
     }
 
     private inner class UrlHomePanel(context: Context, retry: () -> Unit) : LinearLayout(context) {
-        private var recoveryShown: Boolean? = null
+        private var recoveryShown: Pair<Boolean, Boolean>? = null
         private val status = TextView(context).apply {
             textSize = 17f
             gravity = Gravity.CENTER
@@ -533,10 +602,16 @@ class BrowserHomeReplacement(
             addView(retryButton, LayoutParams(-2, -2))
             showRecovery(false)
         }
-        fun showRecovery(recovering: Boolean) {
-            if (recoveryShown == recovering) return
-            recoveryShown = recovering
-            status.text = if (recovering) "自定义主页暂未打开，请重试" else "正在打开主页…"
+        fun showRecovery(recovering: Boolean, returningSearch: Boolean = false) {
+            val state = recovering to returningSearch
+            if (recoveryShown == state) return
+            recoveryShown = state
+            status.text = when {
+                returningSearch && recovering -> "搜索+暂未打开，请重试"
+                returningSearch -> "正在返回搜索+…"
+                recovering -> "自定义主页暂未打开，请重试"
+                else -> "正在打开主页…"
+            }
             retryButton.visibility = if (recovering) View.VISIBLE else View.GONE
         }
     }
@@ -551,14 +626,20 @@ class BrowserHomeReplacement(
         return UrlHomePanel(context) {
             val host = weakHome.get()?.let { fragments[it]?.get() }
             if (host != null && isSelectedHome(host)) {
-                navigation.requestHome(host)
-                bindFragment(host)
+                val owner = ownerTab(host) ?: return@UrlHomePanel
+                if (searchReturn.phase(owner, host) != null) returnToSearch(owner, host)
+                else {
+                    navigation.requestHome(host)
+                    bindFragment(host)
+                }
             }
         }
     }
 
     private fun queueUrlHome(fragment: Any, home: Any, major: Any, view: View) {
         val url = RebornBrowserConfig.validHttpUrl(configuredUrl) ?: return
+        val tab = ownerTab(fragment) ?: return
+        if (searchReturn.phase(tab, fragment) != null) return
         val ticket = navigation.ticket(fragment)
         view.postOnAnimation {
             try {
@@ -568,6 +649,7 @@ class BrowserHomeReplacement(
                 // Check ownership and epoch again when executing, not when queued.
                 if (owner.javaClass.getMethod("isActive").invoke(owner) != true ||
                     owner.javaClass.getMethod("getCurrent").invoke(owner) !== fragment) return@postOnAnimation
+                if (searchReturn.phase(owner, fragment) != null) return@postOnAnimation
                 var attempted = false
                 val dispatched = navigation.openOnce(fragment, ticket) {
                     attempted = true

@@ -12,10 +12,14 @@ LuckyTool Reborn is an independent enhanced fork of [LuckyTool by luckyzyx / 憶
 
 Changing application ID creates a separate installation even with the same signature. It does not overwrite the old app or automatically inherit its settings, root grants, Xposed enablement, URI grants, shortcuts, or Android permissions. Do not enable both modules for the same apps simultaneously.
 
+## 从 v0.10 升级
+
+v0.11 与 v0.10 使用相同应用 ID 和签名，可直接覆盖安装 `LuckyTool-Reborn-v0.11.apk`，无需卸载或重复旧包迁移。升级后按 Vector 要求重启手机或受影响应用，再验证浏览器功能。
+
 ## 从旧版迁移
 
 1. 在仍可使用的旧版中执行设置备份，把文件保存到自己能够找到的位置。先确认文件已保存，不要先卸载旧版。
-2. 安装社区版 `LuckyTool-Reborn-v0.10.apk`，它会与旧版并存。
+2. 安装社区版 `LuckyTool-Reborn-v0.11.apk`，它会与旧版并存。
 3. 在 Vector 中禁用旧模块，启用新的 LuckyTool Reborn，并核对需要的作用域；按框架要求重启手机/目标应用。
 4. 打开新版，从设置的恢复入口选中旧备份文件。旧 base64 JSON / 明文 JSON 均支持，四个稳定配置集合保持一致。
 5. 若备份中的配置存于框架 remote prefs，新模块的框架 service 必须已可用；导入失败会显示失败数量，不会把远端配置悄悄写到本地冒充成功。先完成启用/重启，再重试导入。

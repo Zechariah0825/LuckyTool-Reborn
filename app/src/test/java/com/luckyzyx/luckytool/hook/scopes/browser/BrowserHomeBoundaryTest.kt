@@ -69,4 +69,16 @@ class BrowserHomeBoundaryTest {
         assertFalse(boundary.isRoot(EqualObject(), page, 1, true))
         assertFalse(boundary.isRoot(home, EqualObject(), 1, true))
     }
+    @Test fun `successful return forgets reused page until a new owned request captures it`() {
+        val boundary = BrowserHomeBoundary(); val tab = Any(); val home = Any(); val page = Any()
+        val other = Any(); val otherPage = Any()
+        boundary.capture(BrowserHomeBoundary.Request(tab, home, 0), tab, home, page, 1)
+        boundary.capture(BrowserHomeBoundary.Request(tab, other, 0), tab, other, otherPage, 1)
+        boundary.forget(home)
+        assertFalse(boundary.isRoot(home, page, 1, true))
+        assertTrue(boundary.isRoot(other, otherPage, 1, true))
+        boundary.capture(BrowserHomeBoundary.Request(tab, home, 1), tab, home, page, 1)
+        assertTrue(boundary.isRoot(home, page, 1, true))
+    }
+
 }
