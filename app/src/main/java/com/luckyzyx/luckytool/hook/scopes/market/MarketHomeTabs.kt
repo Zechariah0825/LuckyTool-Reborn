@@ -8,7 +8,7 @@ import com.highcapable.yukihookapi.hook.log.YLog
 import org.lsposed.lsparanoid.Obfuscate
 
 /**
- * 26.10.2_CN assigns the original firstPagePos to HomeChosenCardFragment BEFORE
+ * Both verified Market versions assign the original firstPagePos to HomeChosenCardFragment BEFORE
  * constructing the other pages. Never filter its source DTO or change that index:
  * doing so relabels the recommendation feed as 应用时刻. Filter completed pairs only.
  */
@@ -21,7 +21,18 @@ class MarketHomeTabs : YukiBaseHooker() {
     override fun onHook() {
         val presenter = "com.heytap.cdo.client.cards.page.main.home.tab.HomeSubTabPresenter"
             .toClassOrNull() ?: return
+        val schema = MarketHomeSchema.resolve(presenter.declaredFields.associate { it.name to it.type.name })
+        if (schema == null) {
+            YLog.warn("Reborn: unsupported Market home presenter schema; keeping native pages")
+            return
+        }
         try {
+            // Resolve every field before installing a mutating hook. In 26.11.3,
+            // 08af became a Fragment, so writing the old index fails completely.
+            val homeIndex = presenter.getDeclaredField(schema.homeIndex).apply { isAccessible = true }
+            val startupIndex = presenter.getDeclaredField(schema.startupIndex).apply { isAccessible = true }
+            val tabLayout = presenter.getDeclaredField("\u08a8").apply { isAccessible = true }
+            val viewPager = presenter.getDeclaredField("\u08aa").apply { isAccessible = true }
             presenter.resolve().firstMethod {
                 // Native final binding: pagerAdapter.setItems(pages), tabLayout.bind(tabs).
                 name = "\u079a"
@@ -33,7 +44,7 @@ class MarketHomeTabs : YukiBaseHooker() {
                     val pages = args[1] as? List<*> ?: return@before
                     try {
                         val signatures = pages.map { pageSignature(it) ?: return@before }
-                        val layout = presenter.getDeclaredField("\u08a8").apply { isAccessible = true }.get(owner)
+                        val layout = tabLayout.get(owner)
                         val selectedPosition = layout?.javaClass?.getMethod("getSelectedTabPosition")
                             ?.invoke(layout) as? Int
                         val selectedTitle = selectedPosition?.let { installedTitles[owner]?.getOrNull(it) }
@@ -44,8 +55,8 @@ class MarketHomeTabs : YukiBaseHooker() {
                         // index to select a page. Temporarily supply the restored current
                         // index, then put the App Moment Back target back in after().
                         // This never touches the source DTO firstPagePos.
-                        val current = presenter.getDeclaredField("\u08af").apply { isAccessible = true }
-                        val startup = presenter.getDeclaredField("\u08b3").apply { isAccessible = true }
+                        val current = homeIndex
+                        val startup = startupIndex
                         if (current.type != Int::class.javaPrimitiveType || startup.type != Int::class.javaPrimitiveType)
                             return@before
                         val titles = filtered.tabs.map { tabName(it)!!.trim() }
@@ -66,9 +77,8 @@ class MarketHomeTabs : YukiBaseHooker() {
                     val owner = instance ?: return@after
                     val selection = pendingSelection.remove(owner) ?: return@after
                     try {
-                        presenter.getDeclaredField("\u08af").apply { isAccessible = true }
-                            .setInt(owner, selection.home)
-                        val pager = presenter.getDeclaredField("\u08aa").apply { isAccessible = true }.get(owner)
+                        homeIndex.setInt(owner, selection.home)
+                        val pager = viewPager.get(owner)
                         pager.javaClass.getMethod("setCurrentItem", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
                             .invoke(pager, selection.selected, false)
                         // Same-index selection does not dispatch onPageSelected.

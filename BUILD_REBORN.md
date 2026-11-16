@@ -23,7 +23,7 @@ The APK and its metadata are written to `app/build/outputs/apk/debug/`. Tests an
 Version codes are read without modifying `app/version.properties`. Optional overrides are explicit:
 
 ```sh
-bash ./gradlew :app:assembleDebug -PrebornVersionCode=23312 -PrebornVersionName=1.3.5_reborn.11
+bash ./gradlew :app:assembleDebug -PrebornVersionCode=23313 -PrebornVersionName=1.3.5_reborn.12
 ```
 
 ## Constrained-memory local validation
@@ -63,12 +63,16 @@ Custom release signing is optional through untracked `keystore/keystore.properti
 
 Compilation, unit tests, and lint do not establish Android 17 / ColorOS 17 runtime compatibility. Device tests must cover the actual ROM, LSPosed version, enabled scopes, reboot/recovery behavior, and individual hooks.
 
-## Current v0.11 local result
+## Current v0.12 local result
+
+The 2026-11-16 build passed compilation, all 375 unit tests (62 suites, no failures/errors/skips), and signed APK verification. Full lint failed with 406 inherited MissingTranslation errors, 715 warnings and 33 hints. APK identity/signature, ZIP CRC and 16 KiB ZIP/ELF checks passed. No phone validation or GitHub Actions success is claimed. See `VALIDATION_REBORN_12.md`.
+
+## Historical v0.11 local result
 
 The 2026-11-14 build passed compilation, all 367 unit tests (60 suites, no failures/errors/skips), and signed APK verification. Full lint did not pass: 406 existing `MissingTranslation` errors, 710 warnings and 34 hints. The APK retains the v0.10 application ID and signing certificate. Package, Xposed entry, ZIP CRC and 16 KiB ZIP/ELF checks passed. No phone validation or GitHub Actions success is claimed. See `VALIDATION_REBORN_11.md`.
 
 ## Historical v0.3 local result
 
-For the current browser/Market implementation and results, see `VALIDATION_REBORN_11.md`. The following records the earlier base build.
+For the current browser/Market implementation and results, see `VALIDATION_REBORN_12.md`. The following records the earlier base build.
 
 The modified project produced a debug APK locally. All 196 unit tests across 34 suites passed. Full lint failed with 414 errors, 559 warnings, and 8 informational findings. The six error-bearing files are unchanged from the supplied source archive; no blanket suppression or baseline was added. See `VALIDATION.md` for categories, commands, artifact hashes, and verification limits. These results do not imply a successful GitHub Actions run or a device test.

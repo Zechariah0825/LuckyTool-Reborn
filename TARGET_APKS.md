@@ -1,8 +1,14 @@
 # LuckyTool Reborn target app references
 
-Inspected on 2026-11-10. These OEM application files were provided by the device owner for local compatibility work. None of their binaries are included in the public source tree or deliverable archive.
+Browser references inspected on 2026-11-10; latest Market inspected on 2026-11-16. These OEM application files were provided by the device owner for local compatibility work. None of their binaries are included in the public source tree or deliverable archive.
 
-## Current Google Drive samples
+## Latest Market update (2026-11-16)
+
+- `OPPO-Market1.apk`: `com.heytap.market`, version `26.11.3_CN`, code `261103`, 94,168,031 bytes. SHA-256: `7d132ea30c911c18c43308a7bac3e454138d708d1799d0887c29b5dd199f9f1f`.
+- User explicitly identified `Market1` as the latest sample. The original Market sample below was also rechecked for backwards-compatible field/helper mapping.
+- See [home compatibility](docs/market-compatibility-v12.md) and [search compatibility](docs/market-search-landing-v12.md). No OEM APK is included in the module delivery.
+
+## Earlier Google Drive samples
 
 - `Browser-Browser.apk`: `com.heytap.browser`, version `40.10.21.9.6`, code `10210906`, 272,305,359 bytes, 21 DEX files. SHA-256: `caeda453881561b60e2342004688b86c830468dcb8e42a06231286581d88b6e1`.
 - `Browser-split_live_video_bundle.apk`: same package/version/code, 55,919,162 bytes. SHA-256: `38ffafc7755bf28f35d552d969b03fe2eebc909d05dc5da895480306a5fc0ae8`.
