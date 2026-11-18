@@ -6,18 +6,24 @@ import com.highcapable.kavaref.extension.toClass
 import org.lsposed.lsparanoid.Obfuscate
 
 @Obfuscate
-class SurfaceControlUtils(val classLoader: ClassLoader?) {
-
-    val clazz = "android.view.SurfaceControl".toClass(classLoader)
+class SurfaceControlUtils(
+    val classLoader: ClassLoader?,
+    val clazz: Class<*>
+) {
+    constructor(classLoader: ClassLoader?) : this(
+        classLoader,
+        "android.view.SurfaceControl".toClass(classLoader)
+    )
 
     fun isDisplayToken(): Boolean {
-        return clazz.resolve().firstMethodOrNull {
+        return clazz.resolve().optional(true).firstMethodOrNull {
             name = "getDynamicDisplayInfo"
             parameters(IBinder::class)
         } != null
     }
 
     fun getDynamicDisplayInfo(displayId: Long?): Any? {
+        if (displayId == null) return null
         return clazz.resolve().firstMethod {
             name = "getDynamicDisplayInfo"
             parameters(Long::class)
@@ -32,10 +38,11 @@ class SurfaceControlUtils(val classLoader: ClassLoader?) {
     }
 
     fun getPhysicalDisplayToken(physicalDisplayId: Long?): IBinder? {
-        return clazz.resolve().firstMethod {
+        if (physicalDisplayId == null) return null
+        return clazz.resolve().optional(true).firstMethodOrNull {
             name = "getPhysicalDisplayToken"
             parameters(Long::class)
-        }.invoke<IBinder>(physicalDisplayId)
+        }?.invoke<IBinder>(physicalDisplayId)
     }
 
     fun getInternalDisplayToken(): IBinder? {

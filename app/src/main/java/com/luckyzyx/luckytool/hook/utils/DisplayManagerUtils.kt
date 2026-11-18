@@ -30,22 +30,29 @@ class DisplayManagerUtils(val classLoader: ClassLoader?) {
     fun getDynamicDisplayInfo(displayInfo: DisplayInfo): Any? {
         // ColorOS 17 主屏的 address 可能是 StablePhysical,它是 Physical 的兄弟类而非子类,
         // 因此不能再用 instanceof Physical 判断,直接反射获取 physicalDisplayId。
-        val physicalDisplayId = displayInfo.address?.let { getPhysicalDisplayId(it) } ?: -1L
-        return SurfaceControlUtils(classLoader).let {
-            if (it.isDisplayToken()) {
-                val token = if (physicalDisplayId > 0L) it.getPhysicalDisplayToken(physicalDisplayId)
-                else it.getInternalDisplayToken()
-                it.getDynamicDisplayInfo(token)
-            } else {
-                it.getDynamicDisplayInfo(physicalDisplayId)
-            }
+        return resolveDynamicDisplayInfo(displayInfo.address)
+    }
+
+    internal fun resolveDynamicDisplayInfo(
+        address: Any?,
+        surfaceControl: SurfaceControlUtils = SurfaceControlUtils(classLoader)
+    ): Any? {
+        val physicalDisplayId = address?.let { getPhysicalDisplayId(it) } ?: -1L
+        return if (surfaceControl.isDisplayToken()) {
+            val token = (if (physicalDisplayId > 0L) {
+                surfaceControl.getPhysicalDisplayToken(physicalDisplayId)
+            } else null) ?: surfaceControl.getInternalDisplayToken()
+            surfaceControl.getDynamicDisplayInfo(token)
+        } else {
+            surfaceControl.getDynamicDisplayInfo(physicalDisplayId)
         }
     }
 
     fun getPhysicalDisplayId(address: Any): Long? {
-        return address.asResolver().firstMethodOrNull {
+        return address.asResolver().optional(true).firstMethodOrNull {
             name = "getPhysicalDisplayId"
             emptyParameters()
+            superclass()
         }?.invoke<Long>()
     }
 }
